@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dynamic Shader Generator Demo</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="page">
+      <aside class="panel">
+        <div class="panel-header">
+          <h1>Onboarding → Shader</h1>
+          <p>Change the inputs and see the shader respond.</p>
+        </div>
+
+        <section class="field">
+          <label for="screen1Intent">Screen 1 intent</label>
+          <select id="screen1Intent"></select>
+        </section>
+
+        <section class="field">
+          <div class="field-title">Screen 2 selections</div>
+          <div id="screen2Options" class="chip-grid"></div>
+        </section>
+
+        <section class="field">
+          <div class="field-title">Screen 3 selections</div>
+          <div id="screen3Options" class="chip-grid"></div>
+        </section>
+
+        <section class="field">
+          <div class="field-title">Screen 4 selections</div>
+          <div id="screen4Options" class="chip-grid"></div>
+        </section>
+
+        <section class="field row">
+          <div class="field">
+            <label for="accentColor">Accent color</label>
+            <input id="accentColor" type="color" value="#f06d45" />
+          </div>
+          <div class="field">
+            <label for="seed">Seed</label>
+            <input id="seed" type="text" placeholder="user-42" />
+          </div>
+        </section>
+      </aside>
+
+      <main class="stage">
+        <div class="phone-frame">
+          <div class="phone-notch"></div>
+          <div class="phone-screen">
+            <div class="app-screen">
+              <div class="shader-layer">
+                <canvas id="shader-canvas" aria-label="Shader preview"></canvas>
+              </div>
+
+              <header class="top-bar">
+                <button class="circle-button back" aria-label="Back">
+                  <img src="./assets/Circle Button.svg" alt="" />
+                </button>
+                <button class="circle-button persona" aria-label="Persona">
+                  <img src="./assets/Circle Button-right.svg" alt="" />
+                </button>
+              </header>
+
+              <section class="hero">
+                <h2>You’re all set</h2>
+              </section>
+
+              <section class="feature-list">
+                <article class="feature">
+                  <img class="feature-icon" src="./assets/forum.svg" alt="" />
+                  <div class="feature-text">
+                    <h3>Have a real conversation</h3>
+                    <p>Talk naturally about whatever is on your mind.</p>
+                  </div>
+                </article>
+                <article class="feature">
+                  <img class="feature-icon" src="./assets/explore.svg" alt="" />
+                  <div class="feature-text">
+                    <h3>Let Ash work their magic</h3>
+                    <p>Ash will guide you based on what you're looking to achieve.</p>
+                  </div>
+                </article>
+                <article class="feature">
+                  <img class="feature-icon" src="./assets/book_4_spark.svg" alt="" />
+                  <div class="feature-text">
+                    <h3>See your first insight</h3>
+                    <p>When you're ready, Ash will give you a personalized takeaway.</p>
+                  </div>
+                </article>
+              </section>
+
+              <footer class="bottom-bar">
+                <button class="primary-button">Continue</button>
+                <div class="skip">Skip for now</div>
+              </footer>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
