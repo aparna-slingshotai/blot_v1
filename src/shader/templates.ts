@@ -85,8 +85,7 @@ float mapScene(vec3 p, float t) {
   float thickness = 0.015;
   float dVertical = abs(p.z) - thickness;
   float flower = smax(dHorizontal, dVertical, 0.05);
-  float sphere = length(pOrig - vec3(0.0, 0.0, 0.05)) - 0.06;
-  return min(flower, sphere);
+  return flower;
 }
 
 vec3 getNormal(vec3 p, float t) {
@@ -145,6 +144,7 @@ void main() {
   float t = u_time * (0.4 + 0.4 * u_speed) + u_seed * 0.1 + 0.4 * motionBlend;
 
   vec2 uv = (2.0 * gl_FragCoord.xy - u_resolution.xy) / u_resolution.y;
+  uv *= 1.35;
 
   vec3 ro, rd;
   getCameraRay(uv, t, ro, rd);
@@ -155,8 +155,9 @@ void main() {
   vec3 p = vec3(0.0);
   bool hit = false;
 
-  for (int i = 0; i < 180; i++) {
+  for (int i = 0; i < 140; i++) {
     p = ro + rd * tRay;
+    p.xy += 0.12 * sin(p.yx * 3.0 + t * 0.6);
     d = mapScene(p, t);
     if (d < 0.001) {
       hit = true;
@@ -182,28 +183,57 @@ void main() {
       float diff = max(dot(n, l), 0.1);
       float spec = pow(max(dot(reflect(-l, n), -rd), 0.0), 16.0);
       float rim = pow(1.0 - max(dot(n, -rd), 0.0), 3.0);
-      col = albedo * diff + vec3(1.0) * spec * 0.3 + albedo * rim * 0.5;
+      col = albedo * diff + vec3(1.0) * spec * 0.35 + albedo * rim * 0.6;
     }
   }
+
+  float wSum = u_motionWeights.x + u_motionWeights.y + u_motionWeights.z + u_motionWeights.w;
+  vec4 w = wSum > 0.001 ? u_motionWeights / wSum : vec4(0.0);
+  float overlayEnable = step(0.01, wSum);
+
+  vec3 pA = p + vec3(0.12, -0.08, 0.0) + 0.04 * sin(vec3(t, t * 0.7, 0.0));
+  vec3 pB = p + vec3(-0.16, 0.05, 0.0) + 0.05 * cos(vec3(t * 0.6, t, 0.0));
+  vec3 pC = p + vec3(0.0, 0.18, 0.0) + 0.04 * sin(vec3(t * 0.9, t * 0.4, 0.0));
+  vec3 pD = p + vec3(-0.1, -0.18, 0.0);
+
+  float sphere = length(pA) - 0.22;
+  vec3 boxP = abs(pB) - vec3(0.18, 0.1, 0.08);
+  float box = length(max(boxP, 0.0)) + min(max(boxP.x, max(boxP.y, boxP.z)), 0.0);
+  vec2 torusP = vec2(length(pC.xy) - 0.22, pC.z);
+  float torus = length(torusP) - 0.05;
+  float petalRing = abs(length(pD.xy) - 0.26) + abs(pD.z) - 0.03;
+
+  float sphereGlow = 0.05 / (abs(sphere) + 0.0015);
+  float boxGlow = 0.05 / (abs(box) + 0.0015);
+  float torusGlow = 0.05 / (abs(torus) + 0.0015);
+  float ringGlow = 0.05 / (abs(petalRing) + 0.0015);
+
+  vec3 overlayCol = vec3(0.0);
+  overlayCol += w.x * sphereGlow * mix(u_paletteA, u_extraColors[0], 0.5);
+  overlayCol += w.y * boxGlow * mix(u_paletteB, u_extraColors[1], 0.5);
+  overlayCol += w.z * torusGlow * mix(u_paletteC, u_extraColors[2], 0.5);
+  overlayCol += w.w * ringGlow * mix(u_paletteB, u_paletteC, 0.5);
+  col += overlayCol * overlayEnable * 1.4;
 
   vec3 volCol = vec3(0.0);
   float tVol = 0.0;
   float tVolMax = 5.0;
-  for (int i = 0; i < 120; i++) {
+  for (int i = 0; i < 140; i++) {
     vec3 vp = ro + rd * tVol;
     float vd = mapScene(vp, t);
-    float glowSharp = 0.015 / (abs(vd) + 0.002);
-    float colorPhase = length(vp) * (2.5 + u_noiseScale) - t * 0.5;
+    float glowSharp = 0.02 / (abs(vd) + 0.0015);
+    float rippleFreq = mix(1.2, 4.5, clamp(u_textureScale, 0.0, 1.0));
+    float colorPhase = length(vp) * (rippleFreq + u_noiseScale) - t * 0.7;
     vec3 extraA = u_extraColors[0];
     vec3 extraB = u_extraColors[1];
-    vec3 glowColor = getGradient(colorPhase, mix(u_paletteA, extraA, 0.5), mix(u_paletteB, extraB, 0.5)) * 0.5;
+    vec3 glowColor = getGradient(colorPhase, mix(u_paletteA, extraA, 0.6), mix(u_paletteB, extraB, 0.6)) * 0.6;
     if (length(vp) < 0.1) glowColor += vec3(0.4, 0.3, 0.1);
     volCol += glowColor * glowSharp * 0.4;
-    tVol += max(0.05, abs(vd) * 0.5);
+    tVol += max(0.05, abs(vd) * 0.45);
     if (tVol > tVolMax) break;
   }
 
-  vec3 finalCol = col * 0.0 + volCol;
+  vec3 finalCol = col * 0.2 + volCol;
   finalCol = finalCol / (1.0 + finalCol);
   finalCol += vec3(0.12, 0.05, 0.15) * (uv.y + 1.0) * 0.2;
   finalCol = pow(finalCol, vec3(0.4545));
