@@ -1,6 +1,16 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Libre+Baskerville:wght@400;500;700&display=swap");
+
+@font-face {
+  font-family: "Google Sans";
+  src: url("./assets/fonts/GoogleSans-VariableFont_GRAD,opsz,wght.ttf") format("truetype");
+  font-weight: 100 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
-  color-scheme: dark;
-  font-family: "Inter", "SF Pro Text", system-ui, sans-serif;
+  color-scheme: light;
+  font-family: "Google Sans", "DM Sans", system-ui, sans-serif;
   background: #0f0f10;
   color: #f5f0f3;
 }
@@ -229,7 +239,7 @@ input[type="color"] {
 
 .hero {
   text-align: center;
-  font-family: "PP Fragment", "Libre Baskerville", serif;
+  font-family: "Libre Baskerville", serif;
   font-weight: 500;
   font-size: 21px;
   line-height: 140%;
@@ -263,7 +273,7 @@ input[type="color"] {
 
 .feature-text h3 {
   margin: 0 0 6px 0;
-  font-family: "DM Sans", "Inter", sans-serif;
+  font-family: "Google Sans", "DM Sans", sans-serif;
   font-weight: 600;
   font-size: 15px;
   line-height: 140%;
@@ -271,8 +281,8 @@ input[type="color"] {
 
 .feature-text p {
   margin: 0;
-  font-family: "DM Sans", "Inter", sans-serif;
-  font-weight: 500;
+  font-family: "Google Sans", "DM Sans", sans-serif;
+  font-weight: 425;
   font-size: 12px;
   line-height: 140%;
   color: #464543;
