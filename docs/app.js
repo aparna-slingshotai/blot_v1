@@ -284,6 +284,7 @@ void main() {
   vec3 volCol = vec3(0.0);
   float tVol = 0.0;
   float tVolMax = 5.0;
+  float extraMask = clamp(u_extraCount / 6.0, 0.0, 1.0);
   for (int i = 0; i < 140; i++) {
     vec3 vp = ro + rd * tVol;
     float vd = mapScene(vp, t);
@@ -292,7 +293,15 @@ void main() {
     float colorPhase = length(vp) * (rippleFreq + u_noiseScale) - t * 0.7;
     vec3 extraA = u_extraColors[0];
     vec3 extraB = u_extraColors[1];
-    vec3 glowColor = getGradient(colorPhase, mix(u_paletteA, extraA, 0.6), mix(u_paletteB, extraB, 0.6)) * 0.6;
+    vec3 extraC = u_extraColors[2];
+    vec3 extraD = u_extraColors[3];
+    vec3 baseA = mix(u_paletteA, extraA, 0.85);
+    vec3 baseB = mix(u_paletteB, extraB, 0.85);
+    vec3 baseC = mix(u_paletteC, extraC, 0.85);
+    vec3 baseD = mix(u_paletteB, extraD, 0.85);
+    vec3 mixedAB = getGradient(colorPhase, baseA, baseB);
+    vec3 mixedCD = getGradient(colorPhase + 1.7, baseC, baseD);
+    vec3 glowColor = mix(mixedAB, mixedCD, extraMask) * (0.75 + 0.35 * extraMask);
     if (length(vp) < 0.1) glowColor += vec3(0.4, 0.3, 0.1);
     volCol += glowColor * glowSharp * 0.4;
     tVol += max(0.05, abs(vd) * 0.45);
@@ -301,6 +310,11 @@ void main() {
 
   vec3 finalCol = col * 0.2 + volCol;
   finalCol = finalCol / (1.0 + finalCol);
+
+  float topMask = smoothstep(0.1, 1.0, uv.y);
+  vec3 topTint = mix(u_paletteA, u_paletteB, 0.6);
+  finalCol = mix(finalCol, topTint, topMask * 0.5);
+
   finalCol += vec3(0.12, 0.05, 0.15) * (uv.y + 1.0) * 0.2;
   finalCol = pow(finalCol, vec3(0.4545));
   gl_FragColor = vec4(finalCol, 1.0);
@@ -429,6 +443,21 @@ const mapInputsToParams = (inputs) => {
     : hashString(JSON.stringify(inputs)) * 1000;
 
   const palette = paletteFromNormalized(warmth, calm, inputs.accentColor);
+  const intentPalettes = {
+    Exploration: { a: [0.82, 0.35, 0.78], b: [0.95, 0.45, 0.88], c: [0.28, 0.06, 0.24] },
+    "Challenge me": { a: [0.7, 0.9, 0.6], b: [0.5, 0.8, 0.4], c: [0.2, 0.3, 0.1] },
+    "Ideas & Solutions": { a: [0.95, 0.6, 0.25], b: [0.9, 0.5, 0.2], c: [0.3, 0.12, 0.04] },
+    "Validate & Listen": { a: [0.2, 0.45, 0.25], b: [0.25, 0.6, 0.3], c: [0.05, 0.15, 0.08] },
+    "Teach me": { a: [0.9, 0.4, 0.35], b: [0.98, 0.5, 0.4], c: [0.35, 0.12, 0.08] },
+  };
+  const intentPalette = intentPalettes[inputs.screen1Intent];
+  const themedPalette = intentPalette
+    ? {
+        a: blendVec3(palette.a, intentPalette.a, 0.7),
+        b: blendVec3(palette.b, intentPalette.b, 0.7),
+        c: blendVec3(palette.c, intentPalette.c, 0.7),
+      }
+    : palette;
   const screen2Selections = Array.isArray(inputs.screen2Selections)
     ? inputs.screen2Selections
     : [];
@@ -522,9 +551,9 @@ const mapInputsToParams = (inputs) => {
     u_contrast: lerp(0.8, 1.6, 0.5 * focus + 0.5 * structure),
     u_hueShift: lerp(-0.25, 0.25, warmth),
     u_grain: lerp(0.0, 0.25, 0.5 * novelty + 0.5 * texture),
-    u_paletteA: palette.a,
-    u_paletteB: palette.b,
-    u_paletteC: palette.c,
+    u_paletteA: themedPalette.a,
+    u_paletteB: themedPalette.b,
+    u_paletteC: themedPalette.c,
     u_extraColors: extraColors,
     u_extraCount: Math.min(extraColors.length, 21),
     u_textureWeights: textureWeights,

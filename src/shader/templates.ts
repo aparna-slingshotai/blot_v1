@@ -218,6 +218,7 @@ void main() {
   vec3 volCol = vec3(0.0);
   float tVol = 0.0;
   float tVolMax = 5.0;
+  float extraMask = clamp(u_extraCount / 6.0, 0.0, 1.0);
   for (int i = 0; i < 140; i++) {
     vec3 vp = ro + rd * tVol;
     float vd = mapScene(vp, t);
@@ -226,7 +227,15 @@ void main() {
     float colorPhase = length(vp) * (rippleFreq + u_noiseScale) - t * 0.7;
     vec3 extraA = u_extraColors[0];
     vec3 extraB = u_extraColors[1];
-    vec3 glowColor = getGradient(colorPhase, mix(u_paletteA, extraA, 0.6), mix(u_paletteB, extraB, 0.6)) * 0.6;
+    vec3 extraC = u_extraColors[2];
+    vec3 extraD = u_extraColors[3];
+    vec3 baseA = mix(u_paletteA, extraA, 0.85);
+    vec3 baseB = mix(u_paletteB, extraB, 0.85);
+    vec3 baseC = mix(u_paletteC, extraC, 0.85);
+    vec3 baseD = mix(u_paletteB, extraD, 0.85);
+    vec3 mixedAB = getGradient(colorPhase, baseA, baseB);
+    vec3 mixedCD = getGradient(colorPhase + 1.7, baseC, baseD);
+    vec3 glowColor = mix(mixedAB, mixedCD, extraMask) * (0.75 + 0.35 * extraMask);
     if (length(vp) < 0.1) glowColor += vec3(0.4, 0.3, 0.1);
     volCol += glowColor * glowSharp * 0.4;
     tVol += max(0.05, abs(vd) * 0.45);
@@ -235,6 +244,11 @@ void main() {
 
   vec3 finalCol = col * 0.2 + volCol;
   finalCol = finalCol / (1.0 + finalCol);
+
+  float topMask = smoothstep(0.1, 1.0, uv.y);
+  vec3 topTint = mix(u_paletteA, u_paletteB, 0.6);
+  finalCol = mix(finalCol, topTint, topMask * 0.5);
+
   finalCol += vec3(0.12, 0.05, 0.15) * (uv.y + 1.0) * 0.2;
   finalCol = pow(finalCol, vec3(0.4545));
   gl_FragColor = vec4(finalCol, 1.0);
