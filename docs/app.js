@@ -275,16 +275,16 @@ void main() {
   float ringGlow = 0.05 / (abs(petalRing) + 0.0015);
 
   vec3 overlayCol = vec3(0.0);
-  overlayCol += w.x * sphereGlow * mix(u_paletteA, u_extraColors[0], 0.5);
-  overlayCol += w.y * boxGlow * mix(u_paletteB, u_extraColors[1], 0.5);
-  overlayCol += w.z * torusGlow * mix(u_paletteC, u_extraColors[2], 0.5);
-  overlayCol += w.w * ringGlow * mix(u_paletteB, u_paletteC, 0.5);
+  overlayCol += w.x * sphereGlow * mix(u_paletteA, u_extraColors[0], 0.8);
+  overlayCol += w.y * boxGlow * mix(u_paletteB, u_extraColors[1], 0.8);
+  overlayCol += w.z * torusGlow * mix(u_paletteC, u_extraColors[2], 0.8);
+  overlayCol += w.w * ringGlow * mix(u_paletteB, u_paletteC, 0.7);
   col += overlayCol * overlayEnable * 1.4;
 
   vec3 volCol = vec3(0.0);
   float tVol = 0.0;
   float tVolMax = 5.0;
-  float extraMask = clamp(u_extraCount / 6.0, 0.0, 1.0);
+  float extraMask = clamp(u_extraCount / 5.0, 0.0, 1.0);
   for (int i = 0; i < 140; i++) {
     vec3 vp = ro + rd * tVol;
     float vd = mapScene(vp, t);
@@ -295,13 +295,13 @@ void main() {
     vec3 extraB = u_extraColors[1];
     vec3 extraC = u_extraColors[2];
     vec3 extraD = u_extraColors[3];
-    vec3 baseA = mix(u_paletteA, extraA, 0.85);
-    vec3 baseB = mix(u_paletteB, extraB, 0.85);
-    vec3 baseC = mix(u_paletteC, extraC, 0.85);
-    vec3 baseD = mix(u_paletteB, extraD, 0.85);
+    vec3 baseA = mix(u_paletteA, extraA, 0.95);
+    vec3 baseB = mix(u_paletteB, extraB, 0.95);
+    vec3 baseC = mix(u_paletteC, extraC, 0.95);
+    vec3 baseD = mix(u_paletteB, extraD, 0.95);
     vec3 mixedAB = getGradient(colorPhase, baseA, baseB);
     vec3 mixedCD = getGradient(colorPhase + 1.7, baseC, baseD);
-    vec3 glowColor = mix(mixedAB, mixedCD, extraMask) * (0.75 + 0.35 * extraMask);
+    vec3 glowColor = mix(mixedAB, mixedCD, extraMask) * (0.85 + 0.45 * extraMask);
     if (length(vp) < 0.1) glowColor += vec3(0.4, 0.3, 0.1);
     volCol += glowColor * glowSharp * 0.4;
     tVol += max(0.05, abs(vd) * 0.45);
@@ -318,6 +318,79 @@ void main() {
   finalCol += vec3(0.12, 0.05, 0.15) * (uv.y + 1.0) * 0.2;
   finalCol = pow(finalCol, vec3(0.4545));
   gl_FragColor = vec4(finalCol, 1.0);
+}
+`;
+
+const rippleFragmentShaderSource = `precision highp float;
+
+uniform vec2 u_resolution;
+uniform float u_time;
+
+uniform float u_seed;
+uniform float u_noiseScale;
+uniform float u_warp;
+uniform float u_speed;
+uniform float u_contrast;
+uniform float u_hueShift;
+uniform float u_grain;
+uniform vec3 u_paletteA;
+uniform vec3 u_paletteB;
+uniform vec3 u_paletteC;
+uniform vec3 u_extraColors[21];
+uniform float u_extraCount;
+uniform vec4 u_textureWeights;
+uniform float u_textureScale;
+uniform vec4 u_motionWeights;
+
+void main() {
+  float t = u_time * 0.25;
+  float j = 0.2 + 0.15 * u_contrast;
+  float k = 1.2 + 0.25 * u_warp;
+  float param3 = 0.1 + 0.2 * u_speed;
+  float param4 = 0.3 + 0.3 * u_textureScale;
+  float param5 = 0.3 + 0.2 * u_noiseScale;
+  float param6 = 0.2 + 0.4 * u_contrast;
+  float param7 = 1.0 + 1.5 * u_textureScale;
+  float param8 = 1.0 + 0.8 * u_warp;
+
+  vec2 p = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
+  p += vec2(-2.35, -2.65);
+  float cv = cos(0.0), sv = sin(0.0);
+  p = mat2(cv, -sv, sv, cv) * p;
+
+  vec2 res = p.xx;
+  vec4 fragColor = vec4(j);
+  mat2 m = mat2(j, -1.0, 1.0, j);
+  fragColor.z = k + p.y / 4.0;
+
+  float iter = j;
+  for (int i = 0; i < 24; i++) {
+    float active = step(iter, 100.0);
+    p = (k * p - param3 * t - iter) * m;
+    res = mix(res, res * m, active);
+    res += active * sin(param7 * (p + res + param4 * t));
+    vec2 safe = max(abs(p), vec2(0.0001));
+    float c = dot(cos(param8 * (p + res + param5 * t)), p / safe);
+    fragColor += active * (fragColor.zxyw * (c / 9.0 / max(iter, 0.01)));
+    iter *= k;
+  }
+
+  vec4 oc = 1.0 - exp(-1.0 * fragColor * fragColor);
+  float luminance =
+    0.5 * (0.2125 * oc.r +
+           0.7154 * oc.g +
+           0.0721 * oc.b);
+
+  float extraMask = clamp(u_extraCount / 6.0, 0.0, 1.0);
+  vec3 extraTint = mix(u_extraColors[0], u_extraColors[1], 0.5);
+  vec3 baseTint = mix(u_paletteA, u_paletteB, oc.r);
+  baseTint = mix(baseTint, u_paletteC, oc.g);
+  vec3 tint = mix(baseTint, extraTint, extraMask);
+
+  vec4 baseColor = vec4(tint * luminance, 1.0);
+  vec4 richColor = vec4(tint, 1.0) * oc;
+  fragColor = mix(baseColor, richColor, param6);
+  gl_FragColor = fragColor;
 }
 `;
 
@@ -632,6 +705,7 @@ const createProgram = (gl, vertexSource, fragmentSource) => {
 
 const init = () => {
   const selectIntent = document.getElementById("screen1Intent");
+  const shaderMode = document.getElementById("shaderMode");
   const screen2Container = document.getElementById("screen2Options");
   const screen3Container = document.getElementById("screen3Options");
   const screen4Container = document.getElementById("screen4Options");
@@ -651,8 +725,8 @@ const init = () => {
     return;
   }
 
-  const program = createProgram(gl, vertexShaderSource, fragmentShaderSource);
-  const positionLocation = gl.getAttribLocation(program, "a_position");
+  let program = null;
+  let positionLocation = null;
   const buffer = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
   gl.bufferData(
@@ -661,29 +735,40 @@ const init = () => {
     gl.STATIC_DRAW
   );
 
-  gl.useProgram(program);
-  gl.enableVertexAttribArray(positionLocation);
-  gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+  let uniformLocations = {};
 
-  const uniformLocations = {
-    u_resolution: gl.getUniformLocation(program, "u_resolution"),
-    u_time: gl.getUniformLocation(program, "u_time"),
-    u_seed: gl.getUniformLocation(program, "u_seed"),
-    u_noiseScale: gl.getUniformLocation(program, "u_noiseScale"),
-    u_warp: gl.getUniformLocation(program, "u_warp"),
-    u_speed: gl.getUniformLocation(program, "u_speed"),
-    u_contrast: gl.getUniformLocation(program, "u_contrast"),
-    u_hueShift: gl.getUniformLocation(program, "u_hueShift"),
-    u_grain: gl.getUniformLocation(program, "u_grain"),
-    u_paletteA: gl.getUniformLocation(program, "u_paletteA"),
-    u_paletteB: gl.getUniformLocation(program, "u_paletteB"),
-    u_paletteC: gl.getUniformLocation(program, "u_paletteC"),
-    u_extraColors: gl.getUniformLocation(program, "u_extraColors[0]"),
-    u_extraCount: gl.getUniformLocation(program, "u_extraCount"),
-    u_textureWeights: gl.getUniformLocation(program, "u_textureWeights"),
-    u_textureScale: gl.getUniformLocation(program, "u_textureScale"),
-    u_motionWeights: gl.getUniformLocation(program, "u_motionWeights"),
+  const initProgram = (fragmentSource) => {
+    if (program) {
+      gl.deleteProgram(program);
+    }
+    program = createProgram(gl, vertexShaderSource, fragmentSource);
+    positionLocation = gl.getAttribLocation(program, "a_position");
+    gl.useProgram(program);
+    gl.enableVertexAttribArray(positionLocation);
+    gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+
+    uniformLocations = {
+      u_resolution: gl.getUniformLocation(program, "u_resolution"),
+      u_time: gl.getUniformLocation(program, "u_time"),
+      u_seed: gl.getUniformLocation(program, "u_seed"),
+      u_noiseScale: gl.getUniformLocation(program, "u_noiseScale"),
+      u_warp: gl.getUniformLocation(program, "u_warp"),
+      u_speed: gl.getUniformLocation(program, "u_speed"),
+      u_contrast: gl.getUniformLocation(program, "u_contrast"),
+      u_hueShift: gl.getUniformLocation(program, "u_hueShift"),
+      u_grain: gl.getUniformLocation(program, "u_grain"),
+      u_paletteA: gl.getUniformLocation(program, "u_paletteA"),
+      u_paletteB: gl.getUniformLocation(program, "u_paletteB"),
+      u_paletteC: gl.getUniformLocation(program, "u_paletteC"),
+      u_extraColors: gl.getUniformLocation(program, "u_extraColors[0]"),
+      u_extraCount: gl.getUniformLocation(program, "u_extraCount"),
+      u_textureWeights: gl.getUniformLocation(program, "u_textureWeights"),
+      u_textureScale: gl.getUniformLocation(program, "u_textureScale"),
+      u_motionWeights: gl.getUniformLocation(program, "u_motionWeights"),
+    };
   };
+
+  initProgram(fragmentShaderSource);
 
   const updateUniforms = () => {
     const accent = hexToRgb(accentColorInput.value);
@@ -733,6 +818,14 @@ const init = () => {
 
   window.addEventListener("resize", resize);
   selectIntent.addEventListener("change", updateUniforms);
+  if (shaderMode) {
+    shaderMode.addEventListener("change", () => {
+      const mode = shaderMode.value;
+      initProgram(mode === "ripple" ? rippleFragmentShaderSource : fragmentShaderSource);
+      resize();
+      updateUniforms();
+    });
+  }
   accentColorInput.addEventListener("input", updateUniforms);
   seedInput.addEventListener("input", updateUniforms);
 

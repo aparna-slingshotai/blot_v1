@@ -1,5 +1,5 @@
 export { generateShader } from "./shader/generator";
-export { fragmentTemplate } from "./shader/templates";
+export { fragmentTemplate, rippleTemplate } from "./shader/templates";
 export type { GeneratedShader, ShaderParams, Vec3, Vec4 } from "./shader/types";
 
 export {
