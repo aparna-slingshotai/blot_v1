@@ -85,130 +85,195 @@ uniform vec4 u_textureWeights;
 uniform float u_textureScale;
 uniform vec4 u_motionWeights;
 
-float hash21(vec2 p) {
-  p = fract(p * vec2(123.34, 345.45));
-  p += dot(p, p + 34.345);
+#define PI 3.1415926535897
+
+mat2 rot(float a) {
+  float s = sin(a);
+  float c = cos(a);
+  return mat2(c, -s, s, c);
+}
+
+float smin(float a, float b, float k) {
+  float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
+  return mix(b, a, h) - k * h * (1.0 - h);
+}
+
+float smax(float a, float b, float k) {
+  return -smin(-a, -b, k);
+}
+
+float hash(vec2 p) {
+  p = fract(p * vec3(123.34, 456.21, 789.18).xy);
+  p += dot(p, p + 45.32);
   return fract(p.x * p.y);
 }
 
 float noise(vec2 p) {
   vec2 i = floor(p);
   vec2 f = fract(p);
-  float a = hash21(i);
-  float b = hash21(i + vec2(1.0, 0.0));
-  float c = hash21(i + vec2(0.0, 1.0));
-  float d = hash21(i + vec2(1.0, 1.0));
+  float a = hash(i);
+  float b = hash(i + vec2(1.0, 0.0));
+  float c = hash(i + vec2(0.0, 1.0));
+  float d = hash(i + vec2(1.0, 1.0));
   vec2 u = f * f * (3.0 - 2.0 * f);
   return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
 }
 
-float fbm(vec2 p) {
-  float value = 0.0;
-  float amp = 0.6;
+float fbm(vec2 p, float t) {
+  float v = 0.0;
+  float amp = 0.5;
+  vec2 shift = vec2(t * 0.2, t * 0.1);
   for (int i = 0; i < 4; i++) {
-    value += amp * noise(p);
-    p *= 2.1;
-    amp *= 0.55;
+    v += amp * noise(p - shift * float(i + 1));
+    p *= 2.0;
+    amp *= 0.5;
   }
-  return value;
+  return v;
 }
 
-vec2 warp(vec2 p, float t) {
-  float n1 = noise(p * 1.5 + vec2(t, -t));
-  float n2 = noise(p * 2.3 + vec2(-t, t));
-  return p + u_warp * vec2(n1 - 0.5, n2 - 0.5);
+float getPetalShape(vec3 p, float t) {
+  float a = atan(p.y, p.x);
+  float s = 0.5 + 0.5 * sin(7.0 * a + t * 0.5);
+  float tVal = 0.3 + 0.3 * pow(s, 0.3);
+  tVal += 0.05 * pow(0.5 + 0.5 * cos(12.0 * a), 0.6);
+  float n = fbm(p.xy * 15.0, t) * 1.1;
+  tVal += 0.22 * (n - 0.5);
+  return tVal;
 }
 
-vec3 palette(float t) {
-  vec3 a = u_paletteA;
-  vec3 b = u_paletteB;
-  vec3 c = u_paletteC;
-  return a + b * cos(6.28318 * (c * t + u_hueShift));
+float mapScene(vec3 p, float t) {
+  vec3 pOrig = p;
+  float r = length(p.xy);
+  float bend = 0.5 * r * r;
+  p.z -= bend;
+  float thick = getPetalShape(p, t);
+  float dHorizontal = r - thick;
+  float thickness = 0.015;
+  float dVertical = abs(p.z) - thickness;
+  float flower = smax(dHorizontal, dVertical, 0.05);
+  float sphere = length(pOrig - vec3(0.0, 0.0, 0.05)) - 0.06;
+  return min(flower, sphere);
+}
+
+vec3 getNormal(vec3 p, float t) {
+  vec2 e = vec2(0.001, 0.0);
+  return normalize(vec3(
+    mapScene(p + e.xyy, t) - mapScene(p - e.xyy, t),
+    mapScene(p + e.yxy, t) - mapScene(p - e.yxy, t),
+    mapScene(p + e.yyx, t) - mapScene(p - e.yyx, t)
+  ));
+}
+
+vec3 getGradient(float t, vec3 colA, vec3 colB) {
+  float wave = 0.5 + 0.5 * sin(t);
+  return mix(colA, colB, wave);
+}
+
+vec3 getFlowerColor(vec3 p, float t) {
+  float r = length(p.xy);
+  float shape = getPetalShape(p, t);
+  float n = fbm(p.xy * 15.0, t) * 1.1;
+  vec3 baseFlowerCol = mix(u_paletteA, u_paletteB, 0.6);
+  vec3 centerCol = mix(u_paletteC, vec3(1.0, 0.9, 0.2), 0.5);
+  float centerMask = smoothstep(0.6, 0.1, r / shape);
+  vec3 col = mix(baseFlowerCol, centerCol, centerMask);
+  col *= (0.7 + 0.5 * r / shape);
+  col *= 0.9 + 0.1 * n;
+  return col;
+}
+
+void getCameraRay(vec2 uv, float t, out vec3 ro, out vec3 rd) {
+  vec2 defaultM = vec2(0.8, 0.45);
+  float dist = 1.1;
+  ro = vec3(0.0, 0.0, -dist);
+
+  float baseYaw = defaultM.x * PI;
+  float basePitch = (defaultM.y - 0.5) * PI;
+  float yaw = baseYaw + sin(t * 0.2) * 0.08 * u_speed;
+  float pitch = basePitch + cos(t * 0.25) * 0.05 * u_warp;
+
+  ro.yz *= rot(pitch);
+  ro.xz *= rot(yaw);
+
+  vec3 ta = vec3(0.0);
+  vec3 fwd = normalize(ta - ro);
+  vec3 right = normalize(cross(fwd, vec3(0.0, 1.0, 0.0)));
+  vec3 up = cross(right, fwd);
+  rd = normalize(fwd * 1.2 + right * uv.x + up * uv.y);
 }
 
 void main() {
-  vec2 uv = (gl_FragCoord.xy * 2.0 - u_resolution.xy) / u_resolution.y;
-  float motionSlow = sin(u_time * 0.2 + u_seed);
-  float motionPulse = sin(u_time * 0.9 + u_seed * 1.7);
-  float motionJitter = noise(uv * 6.0 + u_time * 1.2);
-  float motionSpin = sin(u_time * 0.35 + u_seed * 0.4);
   float motionBlend =
-    u_motionWeights.x * motionSlow +
-    u_motionWeights.y * motionPulse +
-    u_motionWeights.z * motionJitter +
-    u_motionWeights.w * motionSpin;
-  float t = u_time * (0.08 + 0.12 * u_speed) + u_seed + 0.3 * motionBlend;
+    u_motionWeights.x * sin(u_time * 0.25) +
+    u_motionWeights.y * sin(u_time * 0.6) +
+    u_motionWeights.z * sin(u_time * 1.1) +
+    u_motionWeights.w * sin(u_time * 0.35 + 1.7);
+  float t = u_time * (0.4 + 0.4 * u_speed) + u_seed * 0.1 + 0.4 * motionBlend;
 
-  vec2 p = vec2(uv.x * (1.25 + 0.1 * u_noiseScale), (uv.y - 0.75) * 1.1);
-  p = warp(p, t);
+  vec2 uv = (2.0 * gl_FragCoord.xy - u_resolution.xy) / u_resolution.y;
 
-  vec2 centerA = vec2(sin(u_seed * 1.3), cos(u_seed * 1.7)) * 0.25 + vec2(0.0, -0.35);
-  vec2 centerB = vec2(cos(u_seed * 2.1), sin(u_seed * 2.6)) * 0.32 + vec2(0.0, -0.42);
-  float distA = length(vec2((p.x - centerA.x) * 0.75, p.y - centerA.y));
-  float distB = length(vec2((p.x - centerB.x) * 0.75, p.y - centerB.y)) * 0.85;
-  float dist = min(distA, distB);
+  vec3 ro, rd;
+  getCameraRay(uv, t, ro, rd);
 
-  float shape = 1.2 - dist;
-  float wobble = fbm(p * 1.4 + t);
-  float bleed = fbm(p * 3.2 - t * 0.6);
+  float tRay = 0.0;
+  float tMax = 10.0;
+  float d = 0.0;
+  vec3 p = vec3(0.0);
+  bool hit = false;
 
-  float blot = smoothstep(-0.3, 0.7, shape + 0.55 * wobble);
-  float edge = smoothstep(0.05, 0.55, shape + 0.25 * bleed);
-  float pigment = pow(blot, mix(1.4, 0.7, u_contrast));
-
-  float v = clamp(pigment + 0.35 * wobble, 0.0, 1.0);
-  vec3 col = palette(v * 1.1);
-
-  vec3 paper = vec3(0.98, 0.975, 0.97);
-  col = mix(paper, col, blot);
-
-  vec3 extraCol = vec3(0.0);
-  float extraWeight = 0.0;
-  for (int i = 0; i < 21; i++) {
-    float active = step(float(i), u_extraCount - 0.5);
-    vec2 seedOffset = vec2(sin(u_seed + float(i) * 1.7), cos(u_seed - float(i) * 1.3));
-    vec2 center = seedOffset * (0.55 + 0.07 * float(i)) + vec2(0.0, -0.4);
-    float distExtra = length(vec2((p.x - center.x) * 0.75, p.y - center.y));
-    float shapeExtra = 0.95 - distExtra;
-    float extraWobble = fbm(p * (1.0 + 0.12 * float(i)) + t * 0.4);
-    float extraMask = smoothstep(-0.35, 0.65, shapeExtra + 0.55 * extraWobble);
-    extraMask *= active;
-    float feather = smoothstep(0.0, 0.8, extraMask);
-    extraCol += u_extraColors[i] * feather;
-    extraWeight += feather;
-  }
-  if (extraWeight > 0.0) {
-    vec3 blended = extraCol / extraWeight;
-    col = mix(col, blended, clamp(extraWeight * 0.35, 0.0, 1.0));
+  for (int i = 0; i < 180; i++) {
+    p = ro + rd * tRay;
+    d = mapScene(p, t);
+    if (d < 0.001) {
+      hit = true;
+      break;
+    }
+    if (tRay > tMax) {
+      break;
+    }
+    tRay += d * 0.6;
   }
 
-  float paperTex = fbm(uv * 6.5 + vec2(u_seed * 0.2));
-  col *= 1.0 - 0.12 * paperTex;
+  vec3 col = vec3(0.0);
+  if (hit) {
+    vec3 n = getNormal(p, t);
+    vec3 lightPos = ro + vec3(1.0, 1.0, 0.0);
+    vec3 l = normalize(lightPos - p);
+    vec3 albedo;
+    if (length(p - vec3(0.0, 0.0, 0.05)) < 0.07) {
+      albedo = mix(vec3(1.0, 0.9, 0.5), u_paletteC, 0.4);
+      col = albedo * 1.5;
+    } else {
+      albedo = getFlowerColor(p, t);
+      float diff = max(dot(n, l), 0.1);
+      float spec = pow(max(dot(reflect(-l, n), -rd), 0.0), 16.0);
+      float rim = pow(1.0 - max(dot(n, -rd), 0.0), 3.0);
+      col = albedo * diff + vec3(1.0) * spec * 0.3 + albedo * rim * 0.5;
+    }
+  }
 
-  float textureScale = 2.0 + 6.0 * u_textureScale;
-  float circles = smoothstep(0.45, 0.1, abs(sin(length(p * textureScale) * 2.8)));
-  float stripes = smoothstep(0.6, 0.2, abs(sin((p.x + p.y) * textureScale * 1.4)));
-  vec2 grid = abs(fract(p * textureScale) - 0.5);
-  float rectangles = smoothstep(0.45, 0.15, max(grid.x, grid.y));
-  float abstract = fbm(p * textureScale * 1.6 + t);
-  float textureMix =
-    u_textureWeights.x * circles +
-    u_textureWeights.y * stripes +
-    u_textureWeights.z * rectangles +
-    u_textureWeights.w * abstract;
-  float textureMask = clamp(textureMix, 0.0, 1.0);
-  col = mix(col, col * (0.75 + 0.25 * textureMask), textureMask * 0.35);
+  vec3 volCol = vec3(0.0);
+  float tVol = 0.0;
+  float tVolMax = 5.0;
+  for (int i = 0; i < 120; i++) {
+    vec3 vp = ro + rd * tVol;
+    float vd = mapScene(vp, t);
+    float glowSharp = 0.015 / (abs(vd) + 0.002);
+    float colorPhase = length(vp) * (2.5 + u_noiseScale) - t * 0.5;
+    vec3 extraA = u_extraColors[0];
+    vec3 extraB = u_extraColors[1];
+    vec3 glowColor = getGradient(colorPhase, mix(u_paletteA, extraA, 0.5), mix(u_paletteB, extraB, 0.5)) * 0.5;
+    if (length(vp) < 0.1) glowColor += vec3(0.4, 0.3, 0.1);
+    volCol += glowColor * glowSharp * 0.4;
+    tVol += max(0.05, abs(vd) * 0.5);
+    if (tVol > tVolMax) break;
+  }
 
-  col = mix(col, col * 0.82, edge * 0.35);
-
-  float lum = dot(col, vec3(0.299, 0.587, 0.114));
-  col = mix(vec3(lum), col, 1.25);
-  col = clamp(col * 1.05, 0.0, 1.0);
-
-  float g = (hash21(gl_FragCoord.xy + u_seed) - 0.5) * u_grain;
-  col += g * 0.6;
-
-  gl_FragColor = vec4(col, 1.0);
+  vec3 finalCol = col * 0.0 + volCol;
+  finalCol = finalCol / (1.0 + finalCol);
+  finalCol += vec3(0.12, 0.05, 0.15) * (uv.y + 1.0) * 0.2;
+  finalCol = pow(finalCol, vec3(0.4545));
+  gl_FragColor = vec4(finalCol, 1.0);
 }
 `;
 
