@@ -825,6 +825,106 @@ const init = () => {
       resize();
       updateUniforms();
     });
+<<<<<<< Updated upstream
+=======
+  };
+
+  const setupMultiSelect = (container, options, key, onChange) => {
+    if (!container) return;
+    container.innerHTML = "";
+    options.forEach((option) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "app-chip";
+      button.textContent = option;
+      applyChipState(button, appState[key].includes(option));
+      button.addEventListener("click", () => {
+        const selections = appState[key];
+        const index = selections.indexOf(option);
+        if (index >= 0) {
+          selections.splice(index, 1);
+          applyChipState(button, false);
+        } else {
+          selections.push(option);
+          applyChipState(button, true);
+        }
+        onChange();
+      });
+      container.appendChild(button);
+    });
+  };
+
+  setupSingleSelect(appScreen1Options, SCREEN1_INTENTS, updateUniforms);
+  const setupTileGrid = (container, options, key, onChange) => {
+    if (!container) return;
+    container.innerHTML = "";
+    options.forEach((option) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "app-chip app-tile";
+      const icon = document.createElement("div");
+      icon.className = "app-tile-icon";
+      const label = document.createElement("span");
+      label.className = "app-tile-label";
+      label.textContent = option;
+      button.appendChild(icon);
+      button.appendChild(label);
+      applyChipState(button, appState[key].includes(option));
+      button.addEventListener("click", () => {
+        const selections = appState[key];
+        const index = selections.indexOf(option);
+        if (index >= 0) {
+          selections.splice(index, 1);
+          applyChipState(button, false);
+        } else {
+          selections.push(option);
+          applyChipState(button, true);
+        }
+        onChange();
+      });
+      container.appendChild(button);
+    });
+  };
+
+  setupTileGrid(appScreen2Options, SCREEN2_OPTIONS, "screen2Selections", updateUniforms);
+  setupMultiSelect(appScreen3Options, SCREEN3_OPTIONS, "screen3Selections", updateUniforms);
+  setupMultiSelect(appScreen4Options, SCREEN4_OPTIONS, "screen4Selections", updateUniforms);
+
+  if (appScreens.length) {
+    let currentStep = 0;
+    const appScreenRoot = document.querySelector(".app-screen");
+    const maxStepIndex = appScreens.length - 1;
+    const showScreen = (index) => {
+      const clamped = Math.max(0, Math.min(index, appScreens.length - 1));
+      currentStep = clamped;
+      appScreens.forEach((screen, idx) => {
+        screen.classList.toggle("active", idx === clamped);
+        const backButton = screen.querySelector("[data-action='back']");
+        if (backButton) {
+          backButton.style.visibility = idx === 0 ? "hidden" : "visible";
+        }
+      });
+      if (appScreenRoot) {
+        const progress = maxStepIndex === 0 ? 1 : clamped / maxStepIndex;
+        const eased = 1 - Math.pow(1 - progress, 2);
+        const radius = 6 + 120 * eased;
+        const overlayOpacity = progress >= 1 ? 0 : 1;
+        appScreenRoot.style.setProperty("--bloom-radius", `${radius.toFixed(1)}%`);
+        appScreenRoot.style.setProperty("--bloom-overlay-opacity", overlayOpacity.toFixed(2));
+      }
+    };
+
+    appScreens.forEach((screen) => {
+      screen.querySelectorAll("[data-action='next']").forEach((button) => {
+        button.addEventListener("click", () => showScreen(currentStep + 1));
+      });
+      screen.querySelectorAll("[data-action='back']").forEach((button) => {
+        button.addEventListener("click", () => showScreen(currentStep - 1));
+      });
+    });
+
+    showScreen(0);
+>>>>>>> Stashed changes
   }
   accentColorInput.addEventListener("input", updateUniforms);
   seedInput.addEventListener("input", updateUniforms);
