@@ -68,7 +68,6 @@ const fragmentShaderSource = `precision highp float;
 
 uniform vec2 u_resolution;
 uniform float u_time;
-
 uniform float u_seed;
 uniform float u_noiseScale;
 uniform float u_warp;
@@ -85,130 +84,229 @@ uniform vec4 u_textureWeights;
 uniform float u_textureScale;
 uniform vec4 u_motionWeights;
 
-float hash21(vec2 p) {
-  p = fract(p * vec2(123.34, 345.45));
-  p += dot(p, p + 34.345);
+#define PI 3.1415926535897
+
+mat2 rot(float a) {
+  float s = sin(a);
+  float c = cos(a);
+  return mat2(c, -s, s, c);
+}
+
+float smin(float a, float b, float k) {
+  float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
+  return mix(b, a, h) - k * h * (1.0 - h);
+}
+
+float smax(float a, float b, float k) {
+  return -smin(-a, -b, k);
+}
+
+float hash(vec2 p) {
+  p = fract(p * vec3(123.34, 456.21, 789.18).xy);
+  p += dot(p, p + 45.32);
   return fract(p.x * p.y);
 }
 
 float noise(vec2 p) {
   vec2 i = floor(p);
   vec2 f = fract(p);
-  float a = hash21(i);
-  float b = hash21(i + vec2(1.0, 0.0));
-  float c = hash21(i + vec2(0.0, 1.0));
-  float d = hash21(i + vec2(1.0, 1.0));
+  float a = hash(i);
+  float b = hash(i + vec2(1.0, 0.0));
+  float c = hash(i + vec2(0.0, 1.0));
+  float d = hash(i + vec2(1.0, 1.0));
   vec2 u = f * f * (3.0 - 2.0 * f);
   return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
 }
 
-float fbm(vec2 p) {
-  float value = 0.0;
-  float amp = 0.6;
+float fbm(vec2 p, float t) {
+  float v = 0.0;
+  float amp = 0.5;
+  vec2 shift = vec2(t * 0.2, t * 0.1);
   for (int i = 0; i < 4; i++) {
-    value += amp * noise(p);
-    p *= 2.1;
-    amp *= 0.55;
+    v += amp * noise(p - shift * float(i + 1));
+    p *= 2.0;
+    amp *= 0.5;
   }
-  return value;
+  return v;
 }
 
-vec2 warp(vec2 p, float t) {
-  float n1 = noise(p * 1.5 + vec2(t, -t));
-  float n2 = noise(p * 2.3 + vec2(-t, t));
-  return p + u_warp * vec2(n1 - 0.5, n2 - 0.5);
+float getPetalShape(vec3 p, float t) {
+  float a = atan(p.y, p.x);
+  float s = 0.5 + 0.5 * sin(7.0 * a + t * 0.5);
+  float tVal = 0.3 + 0.3 * pow(s, 0.3);
+  tVal += 0.05 * pow(0.5 + 0.5 * cos(12.0 * a), 0.6);
+  float n = fbm(p.xy * 15.0, t) * 1.1;
+  tVal += 0.22 * (n - 0.5);
+  return tVal;
 }
 
-vec3 palette(float t) {
-  vec3 a = u_paletteA;
-  vec3 b = u_paletteB;
-  vec3 c = u_paletteC;
-  return a + b * cos(6.28318 * (c * t + u_hueShift));
+float mapScene(vec3 p, float t) {
+  vec3 pOrig = p;
+  float r = length(p.xy);
+  float bend = 0.5 * r * r;
+  p.z -= bend;
+  float thick = getPetalShape(p, t);
+  float dHorizontal = r - thick;
+  float thickness = 0.015;
+  float dVertical = abs(p.z) - thickness;
+  float flower = smax(dHorizontal, dVertical, 0.05);
+  return flower;
+}
+
+vec3 getNormal(vec3 p, float t) {
+  vec2 e = vec2(0.001, 0.0);
+  return normalize(vec3(
+    mapScene(p + e.xyy, t) - mapScene(p - e.xyy, t),
+    mapScene(p + e.yxy, t) - mapScene(p - e.yxy, t),
+    mapScene(p + e.yyx, t) - mapScene(p - e.yyx, t)
+  ));
+}
+
+vec3 getGradient(float t, vec3 colA, vec3 colB) {
+  float wave = 0.5 + 0.5 * sin(t);
+  return mix(colA, colB, wave);
+}
+
+vec3 getFlowerColor(vec3 p, float t) {
+  float r = length(p.xy);
+  float shape = getPetalShape(p, t);
+  float n = fbm(p.xy * 15.0, t) * 1.1;
+  vec3 baseFlowerCol = mix(u_paletteA, u_paletteB, 0.6);
+  vec3 centerCol = mix(u_paletteC, vec3(1.0, 0.9, 0.2), 0.5);
+  float centerMask = smoothstep(0.6, 0.1, r / shape);
+  vec3 col = mix(baseFlowerCol, centerCol, centerMask);
+  col *= (0.7 + 0.5 * r / shape);
+  col *= 0.9 + 0.1 * n;
+  return col;
+}
+
+void getCameraRay(vec2 uv, float t, out vec3 ro, out vec3 rd) {
+  vec2 defaultM = vec2(0.8, 0.45);
+  float dist = 1.1;
+  ro = vec3(0.0, 0.0, -dist);
+
+  float baseYaw = defaultM.x * PI;
+  float basePitch = (defaultM.y - 0.5) * PI;
+  float yaw = baseYaw + sin(t * 0.2) * 0.08 * u_speed;
+  float pitch = basePitch + cos(t * 0.25) * 0.05 * u_warp;
+
+  ro.yz *= rot(pitch);
+  ro.xz *= rot(yaw);
+
+  vec3 ta = vec3(0.0);
+  vec3 fwd = normalize(ta - ro);
+  vec3 right = normalize(cross(fwd, vec3(0.0, 1.0, 0.0)));
+  vec3 up = cross(right, fwd);
+  rd = normalize(fwd * 1.2 + right * uv.x + up * uv.y);
 }
 
 void main() {
-  vec2 uv = (gl_FragCoord.xy * 2.0 - u_resolution.xy) / u_resolution.y;
-  float motionSlow = sin(u_time * 0.2 + u_seed);
-  float motionPulse = sin(u_time * 0.9 + u_seed * 1.7);
-  float motionJitter = noise(uv * 6.0 + u_time * 1.2);
-  float motionSpin = sin(u_time * 0.35 + u_seed * 0.4);
   float motionBlend =
-    u_motionWeights.x * motionSlow +
-    u_motionWeights.y * motionPulse +
-    u_motionWeights.z * motionJitter +
-    u_motionWeights.w * motionSpin;
-  float t = u_time * (0.08 + 0.12 * u_speed) + u_seed + 0.3 * motionBlend;
+    u_motionWeights.x * sin(u_time * 0.25) +
+    u_motionWeights.y * sin(u_time * 0.6) +
+    u_motionWeights.z * sin(u_time * 1.1) +
+    u_motionWeights.w * sin(u_time * 0.35 + 1.7);
+  float t = u_time * (0.4 + 0.4 * u_speed) + u_seed * 0.1 + 0.4 * motionBlend;
 
-  vec2 p = vec2(uv.x * (1.25 + 0.1 * u_noiseScale), (uv.y - 0.75) * 1.1);
-  p = warp(p, t);
+  vec2 uv = (2.0 * gl_FragCoord.xy - u_resolution.xy) / u_resolution.y;
+  uv *= 1.35;
 
-  vec2 centerA = vec2(sin(u_seed * 1.3), cos(u_seed * 1.7)) * 0.25 + vec2(0.0, -0.35);
-  vec2 centerB = vec2(cos(u_seed * 2.1), sin(u_seed * 2.6)) * 0.32 + vec2(0.0, -0.42);
-  float distA = length(vec2((p.x - centerA.x) * 0.75, p.y - centerA.y));
-  float distB = length(vec2((p.x - centerB.x) * 0.75, p.y - centerB.y)) * 0.85;
-  float dist = min(distA, distB);
+  vec3 ro, rd;
+  getCameraRay(uv, t, ro, rd);
 
-  float shape = 1.2 - dist;
-  float wobble = fbm(p * 1.4 + t);
-  float bleed = fbm(p * 3.2 - t * 0.6);
+  float tRay = 0.0;
+  float tMax = 10.0;
+  float d = 0.0;
+  vec3 p = vec3(0.0);
+  bool hit = false;
 
-  float blot = smoothstep(-0.3, 0.7, shape + 0.55 * wobble);
-  float edge = smoothstep(0.05, 0.55, shape + 0.25 * bleed);
-  float pigment = pow(blot, mix(1.4, 0.7, u_contrast));
-
-  float v = clamp(pigment + 0.35 * wobble, 0.0, 1.0);
-  vec3 col = palette(v * 1.1);
-
-  vec3 paper = vec3(0.98, 0.975, 0.97);
-  col = mix(paper, col, blot);
-
-  vec3 extraCol = vec3(0.0);
-  float extraWeight = 0.0;
-  for (int i = 0; i < 21; i++) {
-    float active = step(float(i), u_extraCount - 0.5);
-    vec2 seedOffset = vec2(sin(u_seed + float(i) * 1.7), cos(u_seed - float(i) * 1.3));
-    vec2 center = seedOffset * (0.55 + 0.07 * float(i)) + vec2(0.0, -0.4);
-    float distExtra = length(vec2((p.x - center.x) * 0.75, p.y - center.y));
-    float shapeExtra = 0.95 - distExtra;
-    float extraWobble = fbm(p * (1.0 + 0.12 * float(i)) + t * 0.4);
-    float extraMask = smoothstep(-0.35, 0.65, shapeExtra + 0.55 * extraWobble);
-    extraMask *= active;
-    float feather = smoothstep(0.0, 0.8, extraMask);
-    extraCol += u_extraColors[i] * feather;
-    extraWeight += feather;
-  }
-  if (extraWeight > 0.0) {
-    vec3 blended = extraCol / extraWeight;
-    col = mix(col, blended, clamp(extraWeight * 0.35, 0.0, 1.0));
+  for (int i = 0; i < 140; i++) {
+    p = ro + rd * tRay;
+    p.xy += 0.12 * sin(p.yx * 3.0 + t * 0.6);
+    d = mapScene(p, t);
+    if (d < 0.001) {
+      hit = true;
+      break;
+    }
+    if (tRay > tMax) {
+      break;
+    }
+    tRay += d * 0.6;
   }
 
-  float paperTex = fbm(uv * 6.5 + vec2(u_seed * 0.2));
-  col *= 1.0 - 0.12 * paperTex;
+  vec3 col = vec3(0.0);
 
-  float textureScale = 2.0 + 6.0 * u_textureScale;
-  float circles = smoothstep(0.45, 0.1, abs(sin(length(p * textureScale) * 2.8)));
-  float stripes = smoothstep(0.6, 0.2, abs(sin((p.x + p.y) * textureScale * 1.4)));
-  vec2 grid = abs(fract(p * textureScale) - 0.5);
-  float rectangles = smoothstep(0.45, 0.15, max(grid.x, grid.y));
-  float abstract = fbm(p * textureScale * 1.6 + t);
-  float textureMix =
-    u_textureWeights.x * circles +
-    u_textureWeights.y * stripes +
-    u_textureWeights.z * rectangles +
-    u_textureWeights.w * abstract;
-  float textureMask = clamp(textureMix, 0.0, 1.0);
-  col = mix(col, col * (0.75 + 0.25 * textureMask), textureMask * 0.35);
+  float wSum = u_motionWeights.x + u_motionWeights.y + u_motionWeights.z + u_motionWeights.w;
+  vec4 w = wSum > 0.001 ? u_motionWeights / wSum : vec4(0.0);
+  float overlayEnable = step(0.01, wSum);
 
-  col = mix(col, col * 0.82, edge * 0.35);
+  vec3 pA = p + vec3(0.12, -0.08, 0.0) + 0.04 * sin(vec3(t, t * 0.7, 0.0));
+  vec3 pB = p + vec3(-0.16, 0.05, 0.0) + 0.05 * cos(vec3(t * 0.6, t, 0.0));
+  vec3 pC = p + vec3(0.0, 0.18, 0.0) + 0.04 * sin(vec3(t * 0.9, t * 0.4, 0.0));
+  vec3 pD = p + vec3(-0.1, -0.18, 0.0);
 
-  float lum = dot(col, vec3(0.299, 0.587, 0.114));
-  col = mix(vec3(lum), col, 1.25);
-  col = clamp(col * 1.05, 0.0, 1.0);
+  float sphere = length(pA) - 0.22;
+  vec3 boxP = abs(pB) - vec3(0.18, 0.1, 0.08);
+  float box = length(max(boxP, 0.0)) + min(max(boxP.x, max(boxP.y, boxP.z)), 0.0);
+  vec2 torusP = vec2(length(pC.xy) - 0.22, pC.z);
+  float torus = length(torusP) - 0.05;
+  float petalRing = abs(length(pD.xy) - 0.26) + abs(pD.z) - 0.03;
 
-  float g = (hash21(gl_FragCoord.xy + u_seed) - 0.5) * u_grain;
-  col += g * 0.6;
+  float sphereGlow = 0.05 / (abs(sphere) + 0.0015);
+  float boxGlow = 0.05 / (abs(box) + 0.0015);
+  float torusGlow = 0.05 / (abs(torus) + 0.0015);
+  float ringGlow = 0.05 / (abs(petalRing) + 0.0015);
 
-  gl_FragColor = vec4(col, 1.0);
+  vec3 overlayCol = vec3(0.0);
+  overlayCol += w.x * sphereGlow * mix(u_paletteA, u_extraColors[0], 0.5);
+  overlayCol += w.y * boxGlow * mix(u_paletteB, u_extraColors[1], 0.5);
+  overlayCol += w.z * torusGlow * mix(u_paletteC, u_extraColors[2], 0.5);
+  overlayCol += w.w * ringGlow * mix(u_paletteB, u_paletteC, 0.5);
+  col += overlayCol * overlayEnable * 1.4;
+
+  float extraMask = clamp(u_extraCount / 6.0, 0.0, 1.0);
+  vec2 uv01 = gl_FragCoord.xy / u_resolution.xy;
+  vec2 st = (uv01 - 0.5) * vec2(u_resolution.x / u_resolution.y, 1.0);
+  float edgeFactor = 0.5 - abs(uv01.y - 0.5);
+  float minRes = min(u_resolution.x, u_resolution.y);
+  float glowSpread = 5.0 / minRes;
+  float glowBlur = 80.0 / minRes;
+  float baseGlow = 1.0 - smoothstep(glowSpread, glowSpread + glowBlur, edgeFactor);
+  baseGlow = pow(baseGlow, 0.9);
+
+  float topRad = length(vec2(uv01.x - 0.5, uv01.y - 0.0));
+  float bottomRad = length(vec2(uv01.x - 0.5, uv01.y - 1.0));
+  float topFade = 0.0;
+  float bottomFade = 1.0 - smoothstep(0.05, 0.55, bottomRad);
+  float innerGlow = clamp(baseGlow * max(topFade, bottomFade) * 1.35, 0.0, 1.0);
+
+  float glowField = fbm(st * (1.0 + 0.9 * u_noiseScale), t * 0.4);
+  float glowSharp = smoothstep(0.2, 0.8, glowField);
+  float colorPhase = length(st) * (1.2 + u_noiseScale) - t * 0.4;
+
+  float hasExtra = step(0.5, u_extraCount);
+  vec3 extraA = mix(u_paletteA, u_extraColors[0], hasExtra);
+  vec3 extraB = mix(u_paletteB, u_extraColors[1], hasExtra);
+  vec3 extraC = mix(u_paletteC, u_extraColors[2], hasExtra);
+  vec3 extraD = mix(u_paletteB, u_extraColors[3], hasExtra);
+  vec3 baseA = mix(u_paletteA, extraA, 0.25 + 0.35 * hasExtra);
+  vec3 baseB = mix(u_paletteB, extraB, 0.25 + 0.35 * hasExtra);
+  vec3 baseC = mix(u_paletteC, extraC, 0.25 + 0.35 * hasExtra);
+  vec3 baseD = mix(u_paletteB, extraD, 0.25 + 0.35 * hasExtra);
+  vec3 mixedAB = getGradient(colorPhase, baseA, baseB);
+  vec3 mixedCD = getGradient(colorPhase + 1.7, baseC, baseD);
+  vec3 glowColor = mix(mixedAB, mixedCD, 0.5) * (0.2 + 0.6 * glowSharp);
+
+  vec3 baseBg = vec3(0.10196, 0.09804, 0.09412);
+  vec3 finalCol = baseBg;
+  finalCol = mix(finalCol, glowColor, innerGlow);
+  finalCol = max(finalCol, baseBg);
+  finalCol = finalCol / (1.0 + finalCol);
+
+  finalCol += vec3(0.05, 0.02, 0.04) * (uv.y + 1.0) * 0.05;
+  finalCol = pow(finalCol, vec3(0.4545));
+
+  gl_FragColor = vec4(finalCol, 1.0);
 }
 `;
 
@@ -221,6 +319,7 @@ void main() {
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 const lerp = (a, b, t) => a + (b - a) * t;
+const lerpVec = (a, b, t) => a.map((v, i) => lerp(v, b[i] ?? v, t));
 
 const hashString = (value) => {
   let hash = 2166136261;
@@ -334,6 +433,21 @@ const mapInputsToParams = (inputs) => {
     : hashString(JSON.stringify(inputs)) * 1000;
 
   const palette = paletteFromNormalized(warmth, calm, inputs.accentColor);
+  const intentPalettes = {
+    Exploration: { a: [0.82, 0.35, 0.78], b: [0.95, 0.45, 0.88], c: [0.28, 0.06, 0.24] },
+    "Challenge me": { a: [0.7, 0.9, 0.6], b: [0.5, 0.8, 0.4], c: [0.2, 0.3, 0.1] },
+    "Ideas & Solutions": { a: [0.95, 0.6, 0.25], b: [0.9, 0.5, 0.2], c: [0.3, 0.12, 0.04] },
+    "Validate & Listen": { a: [0.2, 0.45, 0.25], b: [0.25, 0.6, 0.3], c: [0.05, 0.15, 0.08] },
+    "Teach me": { a: [0.9, 0.4, 0.35], b: [0.98, 0.5, 0.4], c: [0.35, 0.12, 0.08] },
+  };
+  const intentPalette = intentPalettes[inputs.screen1Intent];
+  const themedPalette = intentPalette
+    ? {
+        a: blendVec3(palette.a, intentPalette.a, 0.7),
+        b: blendVec3(palette.b, intentPalette.b, 0.7),
+        c: blendVec3(palette.c, intentPalette.c, 0.7),
+      }
+    : palette;
   const screen2Selections = Array.isArray(inputs.screen2Selections)
     ? inputs.screen2Selections
     : [];
@@ -427,9 +541,9 @@ const mapInputsToParams = (inputs) => {
     u_contrast: lerp(0.8, 1.6, 0.5 * focus + 0.5 * structure),
     u_hueShift: lerp(-0.25, 0.25, warmth),
     u_grain: lerp(0.0, 0.25, 0.5 * novelty + 0.5 * texture),
-    u_paletteA: palette.a,
-    u_paletteB: palette.b,
-    u_paletteC: palette.c,
+    u_paletteA: themedPalette.a,
+    u_paletteB: themedPalette.b,
+    u_paletteC: themedPalette.c,
     u_extraColors: extraColors,
     u_extraCount: Math.min(extraColors.length, 21),
     u_textureWeights: textureWeights,
@@ -439,6 +553,7 @@ const mapInputsToParams = (inputs) => {
 };
 
 const setupSelect = (selectEl, options) => {
+  if (!selectEl) return;
   options.forEach((option) => {
     const opt = document.createElement("option");
     opt.value = option;
@@ -448,6 +563,7 @@ const setupSelect = (selectEl, options) => {
 };
 
 const setupCheckboxes = (container, options, onChange) => {
+  if (!container) return;
   container.innerHTML = "";
   options.forEach((option) => {
     const label = document.createElement("label");
@@ -474,10 +590,12 @@ const setupCheckboxes = (container, options, onChange) => {
   });
 };
 
-const gatherSelections = (container) =>
-  Array.from(container.querySelectorAll("input[type='checkbox']:checked")).map(
+const gatherSelections = (container) => {
+  if (!container) return [];
+  return Array.from(container.querySelectorAll("input[type='checkbox']:checked")).map(
     (input) => input.value
   );
+};
 
 const createShader = (gl, type, source) => {
   const shader = gl.createShader(type);
@@ -516,7 +634,9 @@ const init = () => {
   const canvas = document.getElementById("shader-canvas");
 
   setupSelect(selectIntent, SCREEN1_INTENTS);
-  selectIntent.value = SCREEN1_INTENTS[0];
+  if (selectIntent) {
+    selectIntent.value = SCREEN1_INTENTS[0];
+  }
   setupCheckboxes(screen2Container, SCREEN2_OPTIONS, () => updateUniforms());
   setupCheckboxes(screen3Container, SCREEN3_OPTIONS, () => updateUniforms());
   setupCheckboxes(screen4Container, SCREEN4_OPTIONS, () => updateUniforms());
@@ -561,17 +681,10 @@ const init = () => {
     u_motionWeights: gl.getUniformLocation(program, "u_motionWeights"),
   };
 
-  const updateUniforms = () => {
-    const accent = hexToRgb(accentColorInput.value);
-    const inputs = {
-      screen1Intent: selectIntent.value,
-      screen2Selections: gatherSelections(screen2Container),
-      screen3Selections: gatherSelections(screen3Container),
-      screen4Selections: gatherSelections(screen4Container),
-      accentColor: accent,
-      seed: seedInput.value.trim(),
-    };
-    const params = mapInputsToParams(inputs);
+  let targetParams = null;
+  let currentParams = null;
+
+  const applyParams = (params) => {
     gl.uniform1f(uniformLocations.u_seed, params.u_seed);
     gl.uniform1f(uniformLocations.u_noiseScale, params.u_noiseScale);
     gl.uniform1f(uniformLocations.u_warp, params.u_warp);
@@ -598,6 +711,56 @@ const init = () => {
     gl.uniform4fv(uniformLocations.u_motionWeights, params.u_motionWeights);
   };
 
+  const blendParams = (from, to, t) => {
+    const extraColors = Array.from({ length: 21 }, (_, i) => {
+      const a = from.u_extraColors[i] || [0, 0, 0];
+      const b = to.u_extraColors[i] || [0, 0, 0];
+      return lerpVec(a, b, t);
+    });
+    return {
+      u_seed: lerp(from.u_seed, to.u_seed, t),
+      u_noiseScale: lerp(from.u_noiseScale, to.u_noiseScale, t),
+      u_warp: lerp(from.u_warp, to.u_warp, t),
+      u_speed: lerp(from.u_speed, to.u_speed, t),
+      u_contrast: lerp(from.u_contrast, to.u_contrast, t),
+      u_hueShift: lerp(from.u_hueShift, to.u_hueShift, t),
+      u_grain: lerp(from.u_grain, to.u_grain, t),
+      u_paletteA: lerpVec(from.u_paletteA, to.u_paletteA, t),
+      u_paletteB: lerpVec(from.u_paletteB, to.u_paletteB, t),
+      u_paletteC: lerpVec(from.u_paletteC, to.u_paletteC, t),
+      u_extraColors: extraColors,
+      u_extraCount: lerp(from.u_extraCount, to.u_extraCount, t),
+      u_textureWeights: lerpVec(from.u_textureWeights, to.u_textureWeights, t),
+      u_textureScale: lerp(from.u_textureScale, to.u_textureScale, t),
+      u_motionWeights: lerpVec(from.u_motionWeights, to.u_motionWeights, t),
+    };
+  };
+
+  const updateUniforms = () => {
+    const accent = accentColorInput ? hexToRgb(accentColorInput.value) : null;
+    const inputs = {
+      screen1Intent: selectIntent ? selectIntent.value : SCREEN1_INTENTS[0],
+      screen2Selections: gatherSelections(screen2Container),
+      screen3Selections: gatherSelections(screen3Container),
+      screen4Selections: gatherSelections(screen4Container),
+      accentColor: accent,
+      seed: seedInput ? seedInput.value.trim() : "",
+    };
+    targetParams = mapInputsToParams(inputs);
+    if (!currentParams) {
+      currentParams = {
+        ...targetParams,
+        u_paletteA: [...targetParams.u_paletteA],
+        u_paletteB: [...targetParams.u_paletteB],
+        u_paletteC: [...targetParams.u_paletteC],
+        u_extraColors: targetParams.u_extraColors.map((c) => [...c]),
+        u_textureWeights: [...targetParams.u_textureWeights],
+        u_motionWeights: [...targetParams.u_motionWeights],
+      };
+      applyParams(currentParams);
+    }
+  };
+
   const resize = () => {
     const { clientWidth, clientHeight } = canvas;
     const ratio = window.devicePixelRatio || 1;
@@ -608,17 +771,31 @@ const init = () => {
   };
 
   window.addEventListener("resize", resize);
-  selectIntent.addEventListener("change", updateUniforms);
-  accentColorInput.addEventListener("input", updateUniforms);
-  seedInput.addEventListener("input", updateUniforms);
+  if (selectIntent) {
+    selectIntent.addEventListener("change", updateUniforms);
+  }
+  if (accentColorInput) {
+    accentColorInput.addEventListener("input", updateUniforms);
+  }
+  if (seedInput) {
+    seedInput.addEventListener("input", updateUniforms);
+  }
 
   resize();
   updateUniforms();
 
   let start = performance.now();
+  let lastTime = start;
   const render = (now) => {
     const time = (now - start) / 1000;
+    const dt = Math.max(0.001, (now - lastTime) / 1000);
+    lastTime = now;
     gl.uniform1f(uniformLocations.u_time, time);
+    if (targetParams && currentParams) {
+      const smoothing = 1 - Math.exp(-dt * 0.12);
+      currentParams = blendParams(currentParams, targetParams, smoothing);
+      applyParams(currentParams);
+    }
     gl.drawArrays(gl.TRIANGLES, 0, 6);
     requestAnimationFrame(render);
   };
