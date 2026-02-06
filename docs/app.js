@@ -68,7 +68,6 @@ const fragmentShaderSource = `precision highp float;
 
 uniform vec2 u_resolution;
 uniform float u_time;
-
 uniform float u_seed;
 uniform float u_noiseScale;
 uniform float u_warp;
@@ -236,22 +235,6 @@ void main() {
   }
 
   vec3 col = vec3(0.0);
-  if (hit) {
-    vec3 n = getNormal(p, t);
-    vec3 lightPos = ro + vec3(1.0, 1.0, 0.0);
-    vec3 l = normalize(lightPos - p);
-    vec3 albedo;
-    if (length(p - vec3(0.0, 0.0, 0.05)) < 0.07) {
-      albedo = mix(vec3(1.0, 0.9, 0.5), u_paletteC, 0.4);
-      col = albedo * 1.5;
-    } else {
-      albedo = getFlowerColor(p, t);
-      float diff = max(dot(n, l), 0.1);
-      float spec = pow(max(dot(reflect(-l, n), -rd), 0.0), 16.0);
-      float rim = pow(1.0 - max(dot(n, -rd), 0.0), 3.0);
-      col = albedo * diff + vec3(1.0) * spec * 0.35 + albedo * rim * 0.6;
-    }
-  }
 
   float wSum = u_motionWeights.x + u_motionWeights.y + u_motionWeights.z + u_motionWeights.w;
   vec4 w = wSum > 0.001 ? u_motionWeights / wSum : vec4(0.0);
@@ -317,6 +300,7 @@ void main() {
 
   finalCol += vec3(0.12, 0.05, 0.15) * (uv.y + 1.0) * 0.2;
   finalCol = pow(finalCol, vec3(0.4545));
+
   gl_FragColor = vec4(finalCol, 1.0);
 }
 `;
@@ -563,6 +547,7 @@ const mapInputsToParams = (inputs) => {
 };
 
 const setupSelect = (selectEl, options) => {
+  if (!selectEl) return;
   options.forEach((option) => {
     const opt = document.createElement("option");
     opt.value = option;
@@ -572,6 +557,7 @@ const setupSelect = (selectEl, options) => {
 };
 
 const setupCheckboxes = (container, options, onChange) => {
+  if (!container) return;
   container.innerHTML = "";
   options.forEach((option) => {
     const label = document.createElement("label");
@@ -598,10 +584,12 @@ const setupCheckboxes = (container, options, onChange) => {
   });
 };
 
-const gatherSelections = (container) =>
-  Array.from(container.querySelectorAll("input[type='checkbox']:checked")).map(
+const gatherSelections = (container) => {
+  if (!container) return [];
+  return Array.from(container.querySelectorAll("input[type='checkbox']:checked")).map(
     (input) => input.value
   );
+};
 
 const createShader = (gl, type, source) => {
   const shader = gl.createShader(type);
@@ -640,7 +628,9 @@ const init = () => {
   const canvas = document.getElementById("shader-canvas");
 
   setupSelect(selectIntent, SCREEN1_INTENTS);
-  selectIntent.value = SCREEN1_INTENTS[0];
+  if (selectIntent) {
+    selectIntent.value = SCREEN1_INTENTS[0];
+  }
   setupCheckboxes(screen2Container, SCREEN2_OPTIONS, () => updateUniforms());
   setupCheckboxes(screen3Container, SCREEN3_OPTIONS, () => updateUniforms());
   setupCheckboxes(screen4Container, SCREEN4_OPTIONS, () => updateUniforms());
@@ -686,14 +676,14 @@ const init = () => {
   };
 
   const updateUniforms = () => {
-    const accent = hexToRgb(accentColorInput.value);
+    const accent = accentColorInput ? hexToRgb(accentColorInput.value) : null;
     const inputs = {
-      screen1Intent: selectIntent.value,
+      screen1Intent: selectIntent ? selectIntent.value : SCREEN1_INTENTS[0],
       screen2Selections: gatherSelections(screen2Container),
       screen3Selections: gatherSelections(screen3Container),
       screen4Selections: gatherSelections(screen4Container),
       accentColor: accent,
-      seed: seedInput.value.trim(),
+      seed: seedInput ? seedInput.value.trim() : "",
     };
     const params = mapInputsToParams(inputs);
     gl.uniform1f(uniformLocations.u_seed, params.u_seed);
@@ -732,9 +722,15 @@ const init = () => {
   };
 
   window.addEventListener("resize", resize);
-  selectIntent.addEventListener("change", updateUniforms);
-  accentColorInput.addEventListener("input", updateUniforms);
-  seedInput.addEventListener("input", updateUniforms);
+  if (selectIntent) {
+    selectIntent.addEventListener("change", updateUniforms);
+  }
+  if (accentColorInput) {
+    accentColorInput.addEventListener("input", updateUniforms);
+  }
+  if (seedInput) {
+    seedInput.addEventListener("input", updateUniforms);
+  }
 
   resize();
   updateUniforms();
