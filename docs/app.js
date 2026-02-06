@@ -264,41 +264,46 @@ void main() {
   overlayCol += w.w * ringGlow * mix(u_paletteB, u_paletteC, 0.5);
   col += overlayCol * overlayEnable * 1.4;
 
-  vec3 volCol = vec3(0.0);
-  float tVol = 0.0;
-  float tVolMax = 5.0;
   float extraMask = clamp(u_extraCount / 6.0, 0.0, 1.0);
-  for (int i = 0; i < 140; i++) {
-    vec3 vp = ro + rd * tVol;
-    float vd = mapScene(vp, t);
-    float glowSharp = 0.02 / (abs(vd) + 0.0015);
-    float rippleFreq = mix(1.2, 4.5, clamp(u_textureScale, 0.0, 1.0));
-    float colorPhase = length(vp) * (rippleFreq + u_noiseScale) - t * 0.7;
-    vec3 extraA = u_extraColors[0];
-    vec3 extraB = u_extraColors[1];
-    vec3 extraC = u_extraColors[2];
-    vec3 extraD = u_extraColors[3];
-    vec3 baseA = mix(u_paletteA, extraA, 0.85);
-    vec3 baseB = mix(u_paletteB, extraB, 0.85);
-    vec3 baseC = mix(u_paletteC, extraC, 0.85);
-    vec3 baseD = mix(u_paletteB, extraD, 0.85);
-    vec3 mixedAB = getGradient(colorPhase, baseA, baseB);
-    vec3 mixedCD = getGradient(colorPhase + 1.7, baseC, baseD);
-    vec3 glowColor = mix(mixedAB, mixedCD, extraMask) * (0.75 + 0.35 * extraMask);
-    if (length(vp) < 0.1) glowColor += vec3(0.4, 0.3, 0.1);
-    volCol += glowColor * glowSharp * 0.4;
-    tVol += max(0.05, abs(vd) * 0.45);
-    if (tVol > tVolMax) break;
-  }
+  vec2 uv01 = gl_FragCoord.xy / u_resolution.xy;
+  vec2 st = (uv01 - 0.5) * vec2(u_resolution.x / u_resolution.y, 1.0);
+  float edgeFactor = 0.5 - abs(uv01.y - 0.5);
+  float minRes = min(u_resolution.x, u_resolution.y);
+  float glowSpread = 5.0 / minRes;
+  float glowBlur = 40.0 / minRes;
+  float baseGlow = 1.0 - smoothstep(glowSpread, glowSpread + glowBlur, edgeFactor);
+  baseGlow = pow(baseGlow, 0.9);
 
-  vec3 finalCol = col * 0.2 + volCol;
+  float topRad = length(vec2(uv01.x - 0.5, uv01.y - 0.0));
+  float bottomRad = length(vec2(uv01.x - 0.5, uv01.y - 1.0));
+  float topFade = 1.0 - smoothstep(0.12, 0.6, topRad);
+  float bottomFade = 1.0 - smoothstep(0.12, 0.6, bottomRad);
+  float innerGlow = baseGlow * max(topFade, bottomFade);
+
+  float glowField = fbm(st * (1.0 + 0.9 * u_noiseScale), t * 0.4);
+  float glowSharp = smoothstep(0.2, 0.8, glowField);
+  float colorPhase = length(st) * (1.2 + u_noiseScale) - t * 0.4;
+
+  float hasExtra = step(0.5, u_extraCount);
+  vec3 extraA = mix(u_paletteA, u_extraColors[0], hasExtra);
+  vec3 extraB = mix(u_paletteB, u_extraColors[1], hasExtra);
+  vec3 extraC = mix(u_paletteC, u_extraColors[2], hasExtra);
+  vec3 extraD = mix(u_paletteB, u_extraColors[3], hasExtra);
+  vec3 baseA = mix(u_paletteA, extraA, 0.25 + 0.35 * hasExtra);
+  vec3 baseB = mix(u_paletteB, extraB, 0.25 + 0.35 * hasExtra);
+  vec3 baseC = mix(u_paletteC, extraC, 0.25 + 0.35 * hasExtra);
+  vec3 baseD = mix(u_paletteB, extraD, 0.25 + 0.35 * hasExtra);
+  vec3 mixedAB = getGradient(colorPhase, baseA, baseB);
+  vec3 mixedCD = getGradient(colorPhase + 1.7, baseC, baseD);
+  vec3 glowColor = mix(mixedAB, mixedCD, 0.5) * (0.2 + 0.6 * glowSharp);
+
+  vec3 baseBg = vec3(0.10196, 0.09804, 0.09412);
+  vec3 finalCol = baseBg;
+  finalCol = mix(finalCol, glowColor, innerGlow);
+  finalCol = max(finalCol, baseBg);
   finalCol = finalCol / (1.0 + finalCol);
 
-  float topMask = smoothstep(0.1, 1.0, uv.y);
-  vec3 topTint = mix(u_paletteA, u_paletteB, 0.6);
-  finalCol = mix(finalCol, topTint, topMask * 0.5);
-
-  finalCol += vec3(0.12, 0.05, 0.15) * (uv.y + 1.0) * 0.2;
+  finalCol += vec3(0.05, 0.02, 0.04) * (uv.y + 1.0) * 0.05;
   finalCol = pow(finalCol, vec3(0.4545));
 
   gl_FragColor = vec4(finalCol, 1.0);
@@ -314,6 +319,7 @@ void main() {
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 const lerp = (a, b, t) => a + (b - a) * t;
+const lerpVec = (a, b, t) => a.map((v, i) => lerp(v, b[i] ?? v, t));
 
 const hashString = (value) => {
   let hash = 2166136261;
@@ -675,17 +681,10 @@ const init = () => {
     u_motionWeights: gl.getUniformLocation(program, "u_motionWeights"),
   };
 
-  const updateUniforms = () => {
-    const accent = accentColorInput ? hexToRgb(accentColorInput.value) : null;
-    const inputs = {
-      screen1Intent: selectIntent ? selectIntent.value : SCREEN1_INTENTS[0],
-      screen2Selections: gatherSelections(screen2Container),
-      screen3Selections: gatherSelections(screen3Container),
-      screen4Selections: gatherSelections(screen4Container),
-      accentColor: accent,
-      seed: seedInput ? seedInput.value.trim() : "",
-    };
-    const params = mapInputsToParams(inputs);
+  let targetParams = null;
+  let currentParams = null;
+
+  const applyParams = (params) => {
     gl.uniform1f(uniformLocations.u_seed, params.u_seed);
     gl.uniform1f(uniformLocations.u_noiseScale, params.u_noiseScale);
     gl.uniform1f(uniformLocations.u_warp, params.u_warp);
@@ -712,6 +711,56 @@ const init = () => {
     gl.uniform4fv(uniformLocations.u_motionWeights, params.u_motionWeights);
   };
 
+  const blendParams = (from, to, t) => {
+    const extraColors = Array.from({ length: 21 }, (_, i) => {
+      const a = from.u_extraColors[i] || [0, 0, 0];
+      const b = to.u_extraColors[i] || [0, 0, 0];
+      return lerpVec(a, b, t);
+    });
+    return {
+      u_seed: lerp(from.u_seed, to.u_seed, t),
+      u_noiseScale: lerp(from.u_noiseScale, to.u_noiseScale, t),
+      u_warp: lerp(from.u_warp, to.u_warp, t),
+      u_speed: lerp(from.u_speed, to.u_speed, t),
+      u_contrast: lerp(from.u_contrast, to.u_contrast, t),
+      u_hueShift: lerp(from.u_hueShift, to.u_hueShift, t),
+      u_grain: lerp(from.u_grain, to.u_grain, t),
+      u_paletteA: lerpVec(from.u_paletteA, to.u_paletteA, t),
+      u_paletteB: lerpVec(from.u_paletteB, to.u_paletteB, t),
+      u_paletteC: lerpVec(from.u_paletteC, to.u_paletteC, t),
+      u_extraColors: extraColors,
+      u_extraCount: lerp(from.u_extraCount, to.u_extraCount, t),
+      u_textureWeights: lerpVec(from.u_textureWeights, to.u_textureWeights, t),
+      u_textureScale: lerp(from.u_textureScale, to.u_textureScale, t),
+      u_motionWeights: lerpVec(from.u_motionWeights, to.u_motionWeights, t),
+    };
+  };
+
+  const updateUniforms = () => {
+    const accent = accentColorInput ? hexToRgb(accentColorInput.value) : null;
+    const inputs = {
+      screen1Intent: selectIntent ? selectIntent.value : SCREEN1_INTENTS[0],
+      screen2Selections: gatherSelections(screen2Container),
+      screen3Selections: gatherSelections(screen3Container),
+      screen4Selections: gatherSelections(screen4Container),
+      accentColor: accent,
+      seed: seedInput ? seedInput.value.trim() : "",
+    };
+    targetParams = mapInputsToParams(inputs);
+    if (!currentParams) {
+      currentParams = {
+        ...targetParams,
+        u_paletteA: [...targetParams.u_paletteA],
+        u_paletteB: [...targetParams.u_paletteB],
+        u_paletteC: [...targetParams.u_paletteC],
+        u_extraColors: targetParams.u_extraColors.map((c) => [...c]),
+        u_textureWeights: [...targetParams.u_textureWeights],
+        u_motionWeights: [...targetParams.u_motionWeights],
+      };
+      applyParams(currentParams);
+    }
+  };
+
   const resize = () => {
     const { clientWidth, clientHeight } = canvas;
     const ratio = window.devicePixelRatio || 1;
@@ -736,9 +785,17 @@ const init = () => {
   updateUniforms();
 
   let start = performance.now();
+  let lastTime = start;
   const render = (now) => {
     const time = (now - start) / 1000;
+    const dt = Math.max(0.001, (now - lastTime) / 1000);
+    lastTime = now;
     gl.uniform1f(uniformLocations.u_time, time);
+    if (targetParams && currentParams) {
+      const smoothing = 1 - Math.exp(-dt * 0.2);
+      currentParams = blendParams(currentParams, targetParams, smoothing);
+      applyParams(currentParams);
+    }
     gl.drawArrays(gl.TRIANGLES, 0, 6);
     requestAnimationFrame(render);
   };
