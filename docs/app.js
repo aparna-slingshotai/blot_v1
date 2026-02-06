@@ -563,6 +563,7 @@ const mapInputsToParams = (inputs) => {
 };
 
 const setupSelect = (selectEl, options) => {
+  if (!selectEl) return;
   options.forEach((option) => {
     const opt = document.createElement("option");
     opt.value = option;
@@ -572,6 +573,7 @@ const setupSelect = (selectEl, options) => {
 };
 
 const setupCheckboxes = (container, options, onChange) => {
+  if (!container) return;
   container.innerHTML = "";
   options.forEach((option) => {
     const label = document.createElement("label");
@@ -598,10 +600,12 @@ const setupCheckboxes = (container, options, onChange) => {
   });
 };
 
-const gatherSelections = (container) =>
-  Array.from(container.querySelectorAll("input[type='checkbox']:checked")).map(
+const gatherSelections = (container) => {
+  if (!container) return [];
+  return Array.from(container.querySelectorAll("input[type='checkbox']:checked")).map(
     (input) => input.value
   );
+};
 
 const createShader = (gl, type, source) => {
   const shader = gl.createShader(type);
@@ -638,12 +642,11 @@ const init = () => {
   const accentColorInput = document.getElementById("accentColor");
   const seedInput = document.getElementById("seed");
   const canvas = document.getElementById("shader-canvas");
-
-  setupSelect(selectIntent, SCREEN1_INTENTS);
-  selectIntent.value = SCREEN1_INTENTS[0];
-  setupCheckboxes(screen2Container, SCREEN2_OPTIONS, () => updateUniforms());
-  setupCheckboxes(screen3Container, SCREEN3_OPTIONS, () => updateUniforms());
-  setupCheckboxes(screen4Container, SCREEN4_OPTIONS, () => updateUniforms());
+  const appScreen1Options = document.getElementById("appScreen1Options");
+  const appScreen2Options = document.getElementById("appScreen2Options");
+  const appScreen3Options = document.getElementById("appScreen3Options");
+  const appScreen4Options = document.getElementById("appScreen4Options");
+  const appScreens = Array.from(document.querySelectorAll(".screen"));
 
   const gl = canvas.getContext("webgl", { antialias: true });
   if (!gl) {
@@ -685,15 +688,47 @@ const init = () => {
     u_motionWeights: gl.getUniformLocation(program, "u_motionWeights"),
   };
 
+  const appState = {
+    screen1Intent: SCREEN1_INTENTS[0],
+    screen2Selections: [],
+    screen3Selections: [],
+    screen4Selections: [],
+  };
+  const useAppState =
+    !!appScreen1Options || !!appScreen2Options || !!appScreen3Options || !!appScreen4Options;
+
+  const syncCheckboxes = (container, selections) => {
+    if (!container) return;
+    container.querySelectorAll("input[type='checkbox']").forEach((input) => {
+      const isChecked = selections.includes(input.value);
+      input.checked = isChecked;
+      input.closest(".chip")?.classList.toggle("checked", isChecked);
+    });
+  };
+
+  const syncPanelFromState = () => {
+    if (!useAppState) return;
+    if (selectIntent) {
+      selectIntent.value = appState.screen1Intent;
+    }
+    syncCheckboxes(screen2Container, appState.screen2Selections);
+    syncCheckboxes(screen3Container, appState.screen3Selections);
+    syncCheckboxes(screen4Container, appState.screen4Selections);
+  };
+
   const updateUniforms = () => {
-    const accent = hexToRgb(accentColorInput.value);
+    const accent = accentColorInput ? hexToRgb(accentColorInput.value) : null;
     const inputs = {
-      screen1Intent: selectIntent.value,
-      screen2Selections: gatherSelections(screen2Container),
-      screen3Selections: gatherSelections(screen3Container),
-      screen4Selections: gatherSelections(screen4Container),
+      screen1Intent: useAppState
+        ? appState.screen1Intent
+        : selectIntent
+          ? selectIntent.value
+          : SCREEN1_INTENTS[0],
+      screen2Selections: useAppState ? appState.screen2Selections : gatherSelections(screen2Container),
+      screen3Selections: useAppState ? appState.screen3Selections : gatherSelections(screen3Container),
+      screen4Selections: useAppState ? appState.screen4Selections : gatherSelections(screen4Container),
       accentColor: accent,
-      seed: seedInput.value.trim(),
+      seed: seedInput ? seedInput.value.trim() : "",
     };
     const params = mapInputsToParams(inputs);
     gl.uniform1f(uniformLocations.u_seed, params.u_seed);
@@ -720,7 +755,26 @@ const init = () => {
     gl.uniform4fv(uniformLocations.u_textureWeights, params.u_textureWeights);
     gl.uniform1f(uniformLocations.u_textureScale, params.u_textureScale);
     gl.uniform4fv(uniformLocations.u_motionWeights, params.u_motionWeights);
+    syncPanelFromState();
   };
+
+  const handlePanelChange = () => {
+    if (useAppState) {
+      appState.screen1Intent = selectIntent ? selectIntent.value : appState.screen1Intent;
+      appState.screen2Selections = gatherSelections(screen2Container);
+      appState.screen3Selections = gatherSelections(screen3Container);
+      appState.screen4Selections = gatherSelections(screen4Container);
+    }
+    updateUniforms();
+  };
+
+  setupSelect(selectIntent, SCREEN1_INTENTS);
+  if (selectIntent) {
+    selectIntent.value = SCREEN1_INTENTS[0];
+  }
+  setupCheckboxes(screen2Container, SCREEN2_OPTIONS, handlePanelChange);
+  setupCheckboxes(screen3Container, SCREEN3_OPTIONS, handlePanelChange);
+  setupCheckboxes(screen4Container, SCREEN4_OPTIONS, handlePanelChange);
 
   const resize = () => {
     const { clientWidth, clientHeight } = canvas;
@@ -732,9 +786,128 @@ const init = () => {
   };
 
   window.addEventListener("resize", resize);
-  selectIntent.addEventListener("change", updateUniforms);
-  accentColorInput.addEventListener("input", updateUniforms);
-  seedInput.addEventListener("input", updateUniforms);
+  if (selectIntent) {
+    selectIntent.addEventListener("change", handlePanelChange);
+  }
+  if (accentColorInput) {
+    accentColorInput.addEventListener("input", updateUniforms);
+  }
+  if (seedInput) {
+    seedInput.addEventListener("input", updateUniforms);
+  }
+
+  const applyChipState = (button, isSelected) => {
+    button.classList.toggle("selected", isSelected);
+    button.setAttribute("aria-pressed", isSelected ? "true" : "false");
+  };
+
+  const setupSingleSelect = (container, options, onChange) => {
+    if (!container) return;
+    container.innerHTML = "";
+    options.forEach((option) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "app-chip";
+      button.dataset.option = option;
+      button.textContent = option;
+      applyChipState(button, option === appState.screen1Intent);
+      button.addEventListener("click", () => {
+        appState.screen1Intent = option;
+        Array.from(container.children).forEach((child) =>
+          applyChipState(child, child === button)
+        );
+        onChange();
+      });
+      container.appendChild(button);
+    });
+  };
+
+  const setupMultiSelect = (container, options, key, onChange) => {
+    if (!container) return;
+    container.innerHTML = "";
+    options.forEach((option) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "app-chip";
+      button.textContent = option;
+      applyChipState(button, appState[key].includes(option));
+      button.addEventListener("click", () => {
+        const selections = appState[key];
+        const index = selections.indexOf(option);
+        if (index >= 0) {
+          selections.splice(index, 1);
+          applyChipState(button, false);
+        } else {
+          selections.push(option);
+          applyChipState(button, true);
+        }
+        onChange();
+      });
+      container.appendChild(button);
+    });
+  };
+
+  setupSingleSelect(appScreen1Options, SCREEN1_INTENTS, updateUniforms);
+  const setupTileGrid = (container, options, key, onChange) => {
+    if (!container) return;
+    container.innerHTML = "";
+    options.forEach((option) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "app-chip app-tile";
+      const icon = document.createElement("div");
+      icon.className = "app-tile-icon";
+      const label = document.createElement("span");
+      label.className = "app-tile-label";
+      label.textContent = option;
+      button.appendChild(icon);
+      button.appendChild(label);
+      applyChipState(button, appState[key].includes(option));
+      button.addEventListener("click", () => {
+        const selections = appState[key];
+        const index = selections.indexOf(option);
+        if (index >= 0) {
+          selections.splice(index, 1);
+          applyChipState(button, false);
+        } else {
+          selections.push(option);
+          applyChipState(button, true);
+        }
+        onChange();
+      });
+      container.appendChild(button);
+    });
+  };
+
+  setupTileGrid(appScreen2Options, SCREEN2_OPTIONS, "screen2Selections", updateUniforms);
+  setupMultiSelect(appScreen3Options, SCREEN3_OPTIONS, "screen3Selections", updateUniforms);
+  setupMultiSelect(appScreen4Options, SCREEN4_OPTIONS, "screen4Selections", updateUniforms);
+
+  if (appScreens.length) {
+    let currentStep = 0;
+    const showScreen = (index) => {
+      const clamped = Math.max(0, Math.min(index, appScreens.length - 1));
+      currentStep = clamped;
+      appScreens.forEach((screen, idx) => {
+        screen.classList.toggle("active", idx === clamped);
+        const backButton = screen.querySelector("[data-action='back']");
+        if (backButton) {
+          backButton.style.visibility = idx === 0 ? "hidden" : "visible";
+        }
+      });
+    };
+
+    appScreens.forEach((screen) => {
+      screen.querySelectorAll("[data-action='next']").forEach((button) => {
+        button.addEventListener("click", () => showScreen(currentStep + 1));
+      });
+      screen.querySelectorAll("[data-action='back']").forEach((button) => {
+        button.addEventListener("click", () => showScreen(currentStep - 1));
+      });
+    });
+
+    showScreen(0);
+  }
 
   resize();
   updateUniforms();
