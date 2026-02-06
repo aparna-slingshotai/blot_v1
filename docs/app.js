@@ -270,15 +270,15 @@ void main() {
   float edgeFactor = 0.5 - abs(uv01.y - 0.5);
   float minRes = min(u_resolution.x, u_resolution.y);
   float glowSpread = 5.0 / minRes;
-  float glowBlur = 40.0 / minRes;
+  float glowBlur = 60.0 / minRes;
   float baseGlow = 1.0 - smoothstep(glowSpread, glowSpread + glowBlur, edgeFactor);
   baseGlow = pow(baseGlow, 0.9);
 
   float topRad = length(vec2(uv01.x - 0.5, uv01.y - 0.0));
   float bottomRad = length(vec2(uv01.x - 0.5, uv01.y - 1.0));
-  float topFade = 1.0 - smoothstep(0.12, 0.6, topRad);
-  float bottomFade = 1.0 - smoothstep(0.12, 0.6, bottomRad);
-  float innerGlow = baseGlow * max(topFade, bottomFade);
+  float topFade = 1.0 - smoothstep(0.08, 0.72, topRad);
+  float bottomFade = 1.0 - smoothstep(0.08, 0.72, bottomRad);
+  float innerGlow = clamp(baseGlow * max(topFade, bottomFade) * 1.35, 0.0, 1.0);
 
   float glowField = fbm(st * (1.0 + 0.9 * u_noiseScale), t * 0.4);
   float glowSharp = smoothstep(0.2, 0.8, glowField);
