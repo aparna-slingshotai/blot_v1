@@ -1,0 +1,90 @@
+{
+  "inputs": {
+    "screen1Intent": "string",
+    "screen2Selections": "string[]",
+    "screen3Selections": "string[]",
+    "screen4Selections": "string[]",
+    "accentColor": "hex|null",
+    "seed": "string|number"
+  },
+  "baseAxesByIntent": {
+    "Exploration": { "energy": 0.6, "calm": 0.5, "novelty": 0.9, "focus": 0.4, "warmth": 0.55, "structure": 0.35 },
+    "Challenge me": { "energy": 0.95, "calm": 0.2, "novelty": 0.7, "focus": 0.7, "warmth": 0.4, "structure": 0.6 },
+    "Ideas & Solutions": { "energy": 0.55, "calm": 0.55, "novelty": 0.6, "focus": 0.8, "warmth": 0.5, "structure": 0.85 },
+    "Validate & Listen": { "energy": 0.35, "calm": 0.9, "novelty": 0.35, "focus": 0.6, "warmth": 0.85, "structure": 0.5 },
+    "Teach me": { "energy": 0.5, "calm": 0.65, "novelty": 0.4, "focus": 0.75, "warmth": 0.6, "structure": 0.8 }
+  },
+  "fallbackAxes": { "energy": 0.55, "calm": 0.55, "novelty": 0.55, "focus": 0.55, "warmth": 0.55, "structure": 0.55 },
+  "normalization": {
+    "normalizeMultiSelect": "density = clamp(count/maxCount), variety = hash(sorted list) or 0",
+    "normalizeWeights": "normalize 4 weights or use fallback"
+  },
+  "axesFromSelections": {
+    "energy": "base.energy + 0.25*screen2.density + 0.15*screen4.density",
+    "calm": "base.calm + 0.2*(1-screen2.density) + 0.1*screen3.variety",
+    "novelty": "base.novelty + 0.3*screen2.variety + 0.2*screen4.variety",
+    "focus": "base.focus + 0.35*screen3.density - 0.15*screen2.variety",
+    "warmth": "base.warmth + 0.2*screen4.density",
+    "structure": "base.structure + 0.35*screen3.density",
+    "texture": "0.4 + 0.3*screen2.variety + 0.3*screen4.variety"
+  },
+  "palette": {
+    "accentOverride": "palette.a = mix(baseA, accent, 0.6); palette.b = mix(baseB, accent, 0.3); palette.c = baseC",
+    "intentBlend": "if intent palette exists: blend base palette 70% with intent palette"
+  },
+  "textureWeights": {
+    "Warm": [1, 0, 0, 0],
+    "Quirky": [0, 0, 0, 1],
+    "Wise": [0, 0, 1, 0],
+    "Direct": [0, 1, 0, 0],
+    "Laid-back": [1, 0, 0, 1],
+    "Humorous": [1, 0, 0, 0],
+    "Sarcastic": [0, 1, 0, 0],
+    "Nerdy": [0, 1, 1, 0],
+    "fallback": [0.35, 0.25, 0.2, 0.2]
+  },
+  "motionWeights": {
+    "Sports": [0, 1, 0, 0],
+    "Fitness": [0, 1, 0, 0],
+    "Video games": [0, 1, 0, 0],
+    "Music": [0, 1, 0, 0],
+    "Pop culture": [0, 0, 1, 0],
+    "Memes": [0, 0, 1, 0],
+    "Board games": [0, 0, 1, 0],
+    "Nature": [1, 0, 0, 0],
+    "Yoga": [1, 0, 0, 0],
+    "Gardening": [1, 0, 0, 0],
+    "Cooking": [1, 0, 0, 0],
+    "Animals": [1, 0, 0, 0],
+    "Photography": [1, 0, 0, 0],
+    "Tarot": [0, 0, 0, 1],
+    "Mythology": [0, 0, 0, 1],
+    "Dreams": [0, 0, 0, 1],
+    "Books": [1, 0, 0, 1],
+    "Philosophy": [1, 0, 0, 1],
+    "History": [1, 0, 0, 1],
+    "Movies": [1, 0, 0, 1],
+    "fallback": [0.5, 0.2, 0.15, 0.15]
+  },
+  "uniforms": {
+    "u_seed": "seed hash or numeric",
+    "u_noiseScale": "lerp(0.6, 4.2, 0.35*structure + 0.65*novelty)",
+    "u_warp": "lerp(0.0, 1.4, 0.6*novelty + 0.4*energy)",
+    "u_speed": "lerp(0.05, 0.75, energy)",
+    "u_contrast": "lerp(0.8, 1.6, 0.5*focus + 0.5*structure)",
+    "u_hueShift": "lerp(-0.25, 0.25, warmth)",
+    "u_grain": "lerp(0.0, 0.25, 0.5*novelty + 0.5*texture)",
+    "u_paletteA": "themedPalette.a",
+    "u_paletteB": "themedPalette.b",
+    "u_paletteC": "themedPalette.c",
+    "u_extraColors": "colors from screen2 selections (max 21)",
+    "u_extraCount": "min(extraColors.length, 21)",
+    "u_textureWeights": "normalized from screen3",
+    "u_textureScale": "clamp(0.2 + 0.8*screen3.density, 0, 1)",
+    "u_motionWeights": "normalized from screen4"
+  },
+  "notes": {
+    "extraColorsPadding": "Always send 21 vec3s (pad with zeros).",
+    "hash": "Use the same FNV-like hashString as in docs/app.js for consistency."
+  }
+}
