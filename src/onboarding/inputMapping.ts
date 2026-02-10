@@ -288,6 +288,22 @@ export const mapOnboardingInputsToShaderParams = (
   const selectionColors = screen2Selections.map(colorFromLabel);
   const extraColors = selectionColors;
 
+  const intentPalettes: Record<string, { a: Vec3; b: Vec3; c: Vec3 }> = {
+    Exploration: { a: [0.82, 0.35, 0.78], b: [0.95, 0.45, 0.88], c: [0.28, 0.06, 0.24] },
+    "Challenge me": { a: [0.7, 0.9, 0.6], b: [0.5, 0.8, 0.4], c: [0.2, 0.3, 0.1] },
+    "Ideas & Solutions": { a: [0.95, 0.6, 0.25], b: [0.9, 0.5, 0.2], c: [0.3, 0.12, 0.04] },
+    "Validate & Listen": { a: [0.2, 0.45, 0.25], b: [0.25, 0.6, 0.3], c: [0.05, 0.15, 0.08] },
+    "Teach me": { a: [0.9, 0.4, 0.35], b: [0.98, 0.5, 0.4], c: [0.35, 0.12, 0.08] },
+  };
+  const intentPalette = screen1Intent ? intentPalettes[screen1Intent] : undefined;
+  const themedPalette = intentPalette
+    ? {
+        a: blendVec3(palette.a, intentPalette.a, 0.7),
+        b: blendVec3(palette.b, intentPalette.b, 0.7),
+        c: blendVec3(palette.c, intentPalette.c, 0.7),
+      }
+    : palette;
+
   const screen3Selections = Array.isArray(inputs.screen3Selections)
     ? inputs.screen3Selections
     : [];
@@ -375,9 +391,9 @@ export const mapOnboardingInputsToShaderParams = (
     contrast: lerp(0.8, 1.6, 0.5 * focus + 0.5 * structure),
     hueShift: lerp(-0.25, 0.25, warmth),
     grain: lerp(0.0, 0.25, 0.5 * novelty + 0.5 * texture),
-    paletteA: palette.a,
-    paletteB: palette.b,
-    paletteC: palette.c,
+    paletteA: themedPalette.a,
+    paletteB: themedPalette.b,
+    paletteC: themedPalette.c,
     extraColors,
     extraCount: Math.min(extraColors.length, 21),
     textureWeights,
