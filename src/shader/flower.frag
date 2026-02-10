@@ -1,5 +1,12 @@
-// Flutter-compatible fragment shader for the Blot flower visualization.
-// WebGL version: ./templates.ts
+// Fragment shader for the Blot flower visualization.
+// Standalone .frag export of the shader from ./templates.ts
+//
+// This is standard GLSL ES — works in editors, WebGL, and Flutter (Skia backend).
+// For Flutter Impeller backend, apply these changes:
+//   1. Add:    #include <flutter/runtime_effect.glsl>
+//   2. Replace: gl_FragCoord  ->  FlutterFragCoord()
+//   3. Replace: gl_FragColor  ->  out vec4 fragColor (declared before main)
+//   4. Remove:  precision highp float;
 //
 // Uniform float-index mapping for Dart shader.setFloat() calls:
 //
@@ -22,7 +29,7 @@
 //   Index 88-91: u_motionWeights  (vec4 - 4 floats)
 //   Total: 92 floats
 
-#include <flutter/runtime_effect.glsl>
+precision highp float;
 
 uniform vec2 u_resolution;
 uniform float u_time;
@@ -159,8 +166,6 @@ void getCameraRay(vec2 uv, float t, out vec3 ro, out vec3 rd) {
   rd = normalize(fwd * 1.2 + right * uv.x + up * uv.y);
 }
 
-out vec4 fragColor;
-
 void main() {
   float motionBlend =
     u_motionWeights.x * sin(u_time * 0.25) +
@@ -169,7 +174,7 @@ void main() {
     u_motionWeights.w * sin(u_time * 0.35 + 1.7);
   float t = u_time * (0.4 + 0.4 * u_speed) + u_seed * 0.1 + 0.4 * motionBlend;
 
-  vec2 uv = (2.0 * FlutterFragCoord().xy - u_resolution.xy) / u_resolution.y;
+  vec2 uv = (2.0 * gl_FragCoord.xy - u_resolution.xy) / u_resolution.y;
   uv *= 1.35;
 
   vec3 ro, rd;
@@ -277,5 +282,5 @@ void main() {
 
   finalCol += vec3(0.12, 0.05, 0.15) * (uv.y + 1.0) * 0.2;
   finalCol = pow(finalCol, vec3(0.4545));
-  fragColor = vec4(finalCol, 1.0);
+  gl_FragColor = vec4(finalCol, 1.0);
 }
