@@ -1,5 +1,28 @@
-// WebGL version of the flower shader. Flutter/Dart version: ./flower.frag
-export const fragmentTemplate = `precision highp float;
+// Flutter-compatible fragment shader for the Blot flower visualization.
+// WebGL version: ./templates.ts
+//
+// Uniform float-index mapping for Dart shader.setFloat() calls:
+//
+//   Index 0-1:   u_resolution  (vec2  - 2 floats)
+//   Index 2:     u_time        (float - 1 float)
+//   Index 3:     u_seed        (float)
+//   Index 4:     u_noiseScale  (float)
+//   Index 5:     u_warp        (float)
+//   Index 6:     u_speed       (float)
+//   Index 7:     u_contrast    (float)
+//   Index 8:     u_hueShift    (float)
+//   Index 9:     u_grain       (float)
+//   Index 10-12: u_paletteA    (vec3  - 3 floats)
+//   Index 13-15: u_paletteB    (vec3  - 3 floats)
+//   Index 16-18: u_paletteC    (vec3  - 3 floats)
+//   Index 19-81: u_extraColors (vec3[21] - 63 floats)
+//   Index 82:    u_extraCount  (float)
+//   Index 83-86: u_textureWeights (vec4 - 4 floats)
+//   Index 87:    u_textureScale   (float)
+//   Index 88-91: u_motionWeights  (vec4 - 4 floats)
+//   Total: 92 floats
+
+#include <flutter/runtime_effect.glsl>
 
 uniform vec2 u_resolution;
 uniform float u_time;
@@ -136,6 +159,8 @@ void getCameraRay(vec2 uv, float t, out vec3 ro, out vec3 rd) {
   rd = normalize(fwd * 1.2 + right * uv.x + up * uv.y);
 }
 
+out vec4 fragColor;
+
 void main() {
   float motionBlend =
     u_motionWeights.x * sin(u_time * 0.25) +
@@ -144,7 +169,7 @@ void main() {
     u_motionWeights.w * sin(u_time * 0.35 + 1.7);
   float t = u_time * (0.4 + 0.4 * u_speed) + u_seed * 0.1 + 0.4 * motionBlend;
 
-  vec2 uv = (2.0 * gl_FragCoord.xy - u_resolution.xy) / u_resolution.y;
+  vec2 uv = (2.0 * FlutterFragCoord().xy - u_resolution.xy) / u_resolution.y;
   uv *= 1.35;
 
   vec3 ro, rd;
@@ -252,6 +277,5 @@ void main() {
 
   finalCol += vec3(0.12, 0.05, 0.15) * (uv.y + 1.0) * 0.2;
   finalCol = pow(finalCol, vec3(0.4545));
-  gl_FragColor = vec4(finalCol, 1.0);
+  fragColor = vec4(finalCol, 1.0);
 }
-`;
