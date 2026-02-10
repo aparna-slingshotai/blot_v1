@@ -68,6 +68,7 @@ const fragmentShaderSource = `precision highp float;
 
 uniform vec2 u_resolution;
 uniform float u_time;
+uniform float u_shaderMode;
 uniform float u_seed;
 uniform float u_noiseScale;
 uniform float u_warp;
@@ -278,7 +279,9 @@ void main() {
   float bottomRad = length(vec2(uv01.x - 0.5, uv01.y - 1.0));
   float topFade = 0.0;
   float bottomFade = 1.0 - smoothstep(0.05, 0.55, bottomRad);
-  float innerGlow = clamp(baseGlow * max(topFade, bottomFade) * 1.35, 0.0, 1.0);
+  float glowMask = max(topFade, bottomFade);
+  float innerGlow = clamp(baseGlow * glowMask * 1.6, 0.0, 1.0);
+  innerGlow = max(innerGlow, 0.2 * glowMask);
 
   float glowField = fbm(st * (1.0 + 0.9 * u_noiseScale), t * 0.4);
   float glowSharp = smoothstep(0.2, 0.8, glowField);
@@ -295,18 +298,31 @@ void main() {
   vec3 baseD = mix(u_paletteB, extraD, 0.25 + 0.35 * hasExtra);
   vec3 mixedAB = getGradient(colorPhase, baseA, baseB);
   vec3 mixedCD = getGradient(colorPhase + 1.7, baseC, baseD);
-  vec3 glowColor = mix(mixedAB, mixedCD, 0.5) * (0.2 + 0.6 * glowSharp);
+  vec3 glowColor = mix(mixedAB, mixedCD, 0.5) * (0.5 + 1.0 * glowSharp);
+  glowColor += vec3(0.08, 0.04, 0.1) * glowMask;
 
-  vec3 baseBg = vec3(0.10196, 0.09804, 0.09412);
-  vec3 finalCol = baseBg;
-  finalCol = mix(finalCol, glowColor, innerGlow);
-  finalCol = max(finalCol, baseBg);
-  finalCol = finalCol / (1.0 + finalCol);
+  float edgeBand = smoothstep(0.0, 0.6, glowMask) * smoothstep(1.0, 0.4, glowMask);
+  float neonPulse = 0.5 + 0.5 * sin(u_time * 1.5 + colorPhase * 2.5);
+  vec3 neonCore = mix(u_paletteC, u_paletteB, 0.35) * (1.2 + 0.8 * neonPulse);
+  vec3 neonColor = neonCore + glowColor * 1.4;
 
-  finalCol += vec3(0.05, 0.02, 0.04) * (uv.y + 1.0) * 0.05;
+  float shaderMode = step(0.5, u_shaderMode);
+  float topLimit = 0.1;
+  float topFeather = 10.0 / u_resolution.y;
+  float topBand = smoothstep(1.0 - (topLimit + topFeather), 1.0 - topLimit, uv01.y);
+  vec3 modeColor = mix(glowColor, neonColor, shaderMode);
+  float modeGlow = mix(innerGlow, clamp(innerGlow * 1.4 + 0.2 * edgeBand, 0.0, 1.0), shaderMode);
+  float fogBand = mix(topBand, 1.0, shaderMode);
+  modeGlow *= fogBand;
+  vec3 finalCol = modeColor / (1.0 + modeColor);
   finalCol = pow(finalCol, vec3(0.4545));
 
-  gl_FragColor = vec4(finalCol, 1.0);
+  float hazeAlpha = 0.12 * fogBand;
+  vec3 hazeColor = mix(u_paletteA, u_paletteB, 0.5) * 0.25;
+  float outAlpha = clamp(modeGlow + hazeAlpha, 0.0, 1.0);
+  vec3 outColor = mix(hazeColor, finalCol, modeGlow / max(outAlpha, 0.001));
+
+  gl_FragColor = vec4(outColor, outAlpha);
 }
 `;
 
@@ -632,6 +648,7 @@ const init = () => {
   const accentColorInput = document.getElementById("accentColor");
   const seedInput = document.getElementById("seed");
   const canvas = document.getElementById("shader-canvas");
+  const shaderTypeSelect = document.getElementById("shaderType");
 
   setupSelect(selectIntent, SCREEN1_INTENTS);
   if (selectIntent) {
@@ -664,6 +681,7 @@ const init = () => {
   const uniformLocations = {
     u_resolution: gl.getUniformLocation(program, "u_resolution"),
     u_time: gl.getUniformLocation(program, "u_time"),
+    u_shaderMode: gl.getUniformLocation(program, "u_shaderMode"),
     u_seed: gl.getUniformLocation(program, "u_seed"),
     u_noiseScale: gl.getUniformLocation(program, "u_noiseScale"),
     u_warp: gl.getUniformLocation(program, "u_warp"),
@@ -685,6 +703,9 @@ const init = () => {
   let currentParams = null;
 
   const applyParams = (params) => {
+    if (uniformLocations.u_shaderMode) {
+      gl.uniform1f(uniformLocations.u_shaderMode, params.u_shaderMode);
+    }
     gl.uniform1f(uniformLocations.u_seed, params.u_seed);
     gl.uniform1f(uniformLocations.u_noiseScale, params.u_noiseScale);
     gl.uniform1f(uniformLocations.u_warp, params.u_warp);
@@ -718,6 +739,7 @@ const init = () => {
       return lerpVec(a, b, t);
     });
     return {
+      u_shaderMode: lerp(from.u_shaderMode ?? 0, to.u_shaderMode ?? 0, t),
       u_seed: lerp(from.u_seed, to.u_seed, t),
       u_noiseScale: lerp(from.u_noiseScale, to.u_noiseScale, t),
       u_warp: lerp(from.u_warp, to.u_warp, t),
@@ -747,9 +769,11 @@ const init = () => {
       seed: seedInput ? seedInput.value.trim() : "",
     };
     targetParams = mapInputsToParams(inputs);
+    targetParams.u_shaderMode = shaderTypeSelect && shaderTypeSelect.value === "neon" ? 1 : 0;
     if (!currentParams) {
       currentParams = {
         ...targetParams,
+        u_shaderMode: targetParams.u_shaderMode ?? 0,
         u_paletteA: [...targetParams.u_paletteA],
         u_paletteB: [...targetParams.u_paletteB],
         u_paletteC: [...targetParams.u_paletteC],
@@ -780,6 +804,9 @@ const init = () => {
   if (seedInput) {
     seedInput.addEventListener("input", updateUniforms);
   }
+  if (shaderTypeSelect) {
+    shaderTypeSelect.addEventListener("change", updateUniforms);
+  }
 
   resize();
   updateUniforms();
@@ -792,7 +819,7 @@ const init = () => {
     lastTime = now;
     gl.uniform1f(uniformLocations.u_time, time);
     if (targetParams && currentParams) {
-      const smoothing = 1 - Math.exp(-dt * 0.12);
+      const smoothing = 1 - Math.exp(-dt * 0.18);
       currentParams = blendParams(currentParams, targetParams, smoothing);
       applyParams(currentParams);
     }

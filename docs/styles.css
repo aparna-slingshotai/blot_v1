@@ -172,7 +172,7 @@ input[type="color"] {
   height: 100%;
   border-radius: 34px;
   overflow: hidden;
-  background: #ebe7de;
+  background: #1a1918;
   position: relative;
 }
 
@@ -183,8 +183,8 @@ input[type="color"] {
   display: flex;
   flex-direction: column;
   gap: 48px;
-  background: #ebe7de;
-  color: #1a1918;
+  background: #1a1918;
+  color: #f5f0f3;
 }
 
 .shader-layer {
