@@ -1,33 +1,164 @@
 // Fragment shader for the Blot flower visualization.
 // Standalone .frag export of the shader from ./templates.ts
 //
+// ═══════════════════════════════════════════════════════════════════
+// FLUTTER INTEGRATION GUIDE
+// ═══════════════════════════════════════════════════════════════════
+//
 // This is standard GLSL ES — works in editors, WebGL, and Flutter (Skia backend).
+//
 // For Flutter Impeller backend, apply these changes:
 //   1. Add:    #include <flutter/runtime_effect.glsl>
 //   2. Replace: gl_FragCoord  ->  FlutterFragCoord()
 //   3. Replace: gl_FragColor  ->  out vec4 fragColor (declared before main)
 //   4. Remove:  precision highp float;
 //
-// Uniform float-index mapping for Dart shader.setFloat() calls:
+// ═══════════════════════════════════════════════════════════════════
+// UNIFORM REFERENCE — what each input controls
+// ═══════════════════════════════════════════════════════════════════
 //
-//   Index 0-1:   u_resolution  (vec2  - 2 floats)
-//   Index 2:     u_time        (float - 1 float)
-//   Index 3:     u_seed        (float)
-//   Index 4:     u_noiseScale  (float)
-//   Index 5:     u_warp        (float)
-//   Index 6:     u_speed       (float)
-//   Index 7:     u_contrast    (float)
-//   Index 8:     u_hueShift    (float)
-//   Index 9:     u_grain       (float)
-//   Index 10-12: u_paletteA    (vec3  - 3 floats)
-//   Index 13-15: u_paletteB    (vec3  - 3 floats)
-//   Index 16-18: u_paletteC    (vec3  - 3 floats)
-//   Index 19-81: u_extraColors (vec3[21] - 63 floats)
-//   Index 82:    u_extraCount  (float)
-//   Index 83-86: u_textureWeights (vec4 - 4 floats)
-//   Index 87:    u_textureScale   (float)
-//   Index 88-91: u_motionWeights  (vec4 - 4 floats)
+// u_resolution (vec2) — Canvas size in pixels [width, height].
+//   Set to the widget size. Required for correct aspect ratio.
+//
+// u_time (float) — Elapsed time in seconds since animation start.
+//   Drives all animation. Increment each frame (e.g. via Ticker).
+//
+// u_seed (float) — Random seed for variation.
+//   Range: 0 – 1000. Different seeds produce different flower shapes
+//   while keeping the same overall character. Typically hashed from
+//   user inputs so each user gets a unique flower.
+//
+// u_noiseScale (float) — Petal texture detail / complexity.
+//   Range: 0.6 – 4.2. Low = smooth petals, high = intricate detail.
+//   Affects the ripple frequency in the volumetric glow rendering.
+//
+// u_warp (float) — Camera distortion amount.
+//   Range: 0.0 – 1.4. Controls how much the camera pitch oscillates.
+//   Higher = more dynamic, swaying viewpoint.
+//
+// u_speed (float) — Overall animation speed.
+//   Range: 0.05 – 0.75. Controls time multiplier and camera yaw.
+//   Low = slow, meditative; high = fast, energetic.
+//
+// u_contrast (float) — Reserved for future use.
+//   Range: 0.8 – 1.6. Declared but not currently read in main().
+//
+// u_hueShift (float) — Reserved for future use.
+//   Range: -0.25 – 0.25. Declared but not currently read in main().
+//
+// u_grain (float) — Reserved for future use.
+//   Range: 0.0 – 0.25. Declared but not currently read in main().
+//
+// u_paletteA (vec3) — Primary flower color (RGB, each channel 0–1).
+//   Dominant petal color, top tint, and volumetric glow base.
+//   Example warm: (0.95, 0.45, 0.2)  Example cool: (0.2, 0.45, 0.95)
+//
+// u_paletteB (vec3) — Secondary flower color (RGB, 0–1).
+//   Blended into petal shading and overlay glow accents.
+//   Example warm: (0.9, 0.8, 0.4)  Example cool: (0.35, 0.75, 0.85)
+//
+// u_paletteC (vec3) — Center / core color (RGB, 0–1).
+//   The innermost flower center and torus overlay glow.
+//   Example warm: (0.2, 0.05, 0.02)  Example cool: (0.02, 0.05, 0.2)
+//
+// u_extraColors (vec3[21]) — Up to 21 additional accent colors (RGB, 0–1).
+//   Used in overlay glow effects and volumetric color cycling.
+//   Unused slots can be left at (0, 0, 0). Only the first
+//   u_extraCount colors are blended in.
+//
+// u_extraCount (float) — Number of active extra colors.
+//   Range: 0 – 21. At 6+ the volumetric glow is fully saturated.
+//   Controls the blend strength: mask = clamp(count / 6, 0, 1).
+//
+// u_textureWeights (vec4) — Overlay shape blend [warm, direct, wise, quirky].
+//   Each component 0–1, normalized so they sum to ~1.
+//   Controls which of 4 overlay glow shapes are visible:
+//     .x (warm)   → sphere glow
+//     .y (direct) → box glow
+//     .z (wise)   → torus glow
+//     .w (quirky) → petal ring glow
+//   Default if unsure: (0.35, 0.25, 0.2, 0.2)
+//
+// u_textureScale (float) — Volumetric ripple frequency.
+//   Range: 0.2 – 1.0. Mapped to ripple freq 1.2–4.5 internally.
+//   Low = fewer, broader ripples; high = tight, detailed ripples.
+//
+// u_motionWeights (vec4) — Animation rhythm blend [nature, energy, pop, mystery].
+//   NOT normalized (values accumulate). Controls oscillation mix:
+//     .x (nature)  → slow sine   (period ~25s)
+//     .y (energy)  → medium sine (period ~10s)
+//     .z (pop)     → fast sine   (period ~6s)
+//     .w (mystery) → slow sine with phase offset
+//   Default if unsure: (0.5, 0.2, 0.15, 0.15)
+//
+// ═══════════════════════════════════════════════════════════════════
+// DART shader.setFloat() INDEX MAP  (92 floats total)
+// ═══════════════════════════════════════════════════════════════════
+//
+//   Index  0-1  : u_resolution      (vec2  — 2 floats)
+//   Index  2    : u_time            (float)
+//   Index  3    : u_seed            (float)
+//   Index  4    : u_noiseScale      (float)
+//   Index  5    : u_warp            (float)
+//   Index  6    : u_speed           (float)
+//   Index  7    : u_contrast        (float)
+//   Index  8    : u_hueShift        (float)
+//   Index  9    : u_grain           (float)
+//   Index  10-12: u_paletteA        (vec3  — 3 floats)
+//   Index  13-15: u_paletteB        (vec3  — 3 floats)
+//   Index  16-18: u_paletteC        (vec3  — 3 floats)
+//   Index  19-81: u_extraColors     (vec3[21] — 63 floats)
+//   Index  82   : u_extraCount      (float)
+//   Index  83-86: u_textureWeights  (vec4  — 4 floats)
+//   Index  87   : u_textureScale    (float)
+//   Index  88-91: u_motionWeights   (vec4  — 4 floats)
+//   ─────────────────────────────────────────────────
 //   Total: 92 floats
+//
+// ═══════════════════════════════════════════════════════════════════
+// SAMPLE DART USAGE
+// ═══════════════════════════════════════════════════════════════════
+//
+//   final program = await FragmentProgram.fromAsset('shaders/flower.frag');
+//   final shader  = program.fragmentShader();
+//
+//   // System uniforms (set every frame)
+//   shader.setFloat(0, size.width);    // u_resolution.x
+//   shader.setFloat(1, size.height);   // u_resolution.y
+//   shader.setFloat(2, elapsedSec);    // u_time
+//
+//   // Creative uniforms (set once or when config changes)
+//   shader.setFloat(3, 42.0);          // u_seed
+//   shader.setFloat(4, 2.0);           // u_noiseScale
+//   shader.setFloat(5, 0.7);           // u_warp
+//   shader.setFloat(6, 0.4);           // u_speed
+//   shader.setFloat(7, 1.0);           // u_contrast  (reserved)
+//   shader.setFloat(8, 0.0);           // u_hueShift  (reserved)
+//   shader.setFloat(9, 0.0);           // u_grain     (reserved)
+//
+//   // Palette colors (RGB, 0–1)
+//   shader.setFloat(10, 0.82); shader.setFloat(11, 0.35); shader.setFloat(12, 0.78); // u_paletteA
+//   shader.setFloat(13, 0.95); shader.setFloat(14, 0.45); shader.setFloat(15, 0.88); // u_paletteB
+//   shader.setFloat(16, 0.28); shader.setFloat(17, 0.06); shader.setFloat(18, 0.24); // u_paletteC
+//
+//   // Extra colors — fill indices 19..81 (3 floats per color, 21 slots)
+//   for (int i = 0; i < 21; i++) {
+//     shader.setFloat(19 + i * 3,     colors[i].r);
+//     shader.setFloat(19 + i * 3 + 1, colors[i].g);
+//     shader.setFloat(19 + i * 3 + 2, colors[i].b);
+//   }
+//   shader.setFloat(82, 5.0);          // u_extraCount (number of active colors)
+//
+//   // Texture / overlay weights
+//   shader.setFloat(83, 0.35); shader.setFloat(84, 0.25);  // u_textureWeights.xy
+//   shader.setFloat(85, 0.20); shader.setFloat(86, 0.20);  // u_textureWeights.zw
+//   shader.setFloat(87, 0.5);          // u_textureScale
+//
+//   // Motion weights
+//   shader.setFloat(88, 0.5);  shader.setFloat(89, 0.2);   // u_motionWeights.xy
+//   shader.setFloat(90, 0.15); shader.setFloat(91, 0.15);  // u_motionWeights.zw
+//
+//   canvas.drawRect(Offset.zero & size, Paint()..shader = shader);
 
 precision highp float;
 
