@@ -8,3 +8,11 @@ export {
   type InputSchema,
   type InputValue,
 } from "./onboarding/inputMapping";
+
+export {
+  particleCommonGlsl,
+  particleBufferAGlsl,
+  particleBufferBGlsl,
+  particleBufferCGlsl,
+  particleImageGlsl,
+} from "./shader/particles/templates";
